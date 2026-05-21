@@ -1,0 +1,28 @@
+# Data
+data/*.duckdb
+data/*.parquet
+data/manifest.json
+
+# Python
+__pycache__/
+*.py[cod]
+*.egg-info/
+.eggs/
+dist/
+build/
+.venv/
+venv/
+.env
+
+# IDE / OS
+.idea/
+.vscode/
+.DS_Store
+Thumbs.db
+
+# Streamlit
+.streamlit/secrets.toml
+
+# Local publish helper (not part of the app)
+COMMIT_MSG.txt
+git_log.txt

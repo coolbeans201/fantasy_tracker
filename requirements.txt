@@ -1,0 +1,10 @@
+# Use pre-built wheels on Windows (avoid compiling pandas from source)
+streamlit>=1.32,<2
+duckdb>=1.1,<2
+# 3.12–3.13: 2.2.2+ wheels; 3.14: need 2.3.3+ (see scripts/check_env.py)
+pandas>=2.2.2,<3; python_version < "3.14"
+pandas>=2.3.3,<3; python_version >= "3.14"
+nflreadpy>=0.1.5
+pyyaml>=6.0
+rapidfuzz>=3.6
+matplotlib>=3.8

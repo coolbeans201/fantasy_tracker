@@ -1,0 +1,20 @@
+# Minimum volume for Z-score peer comparisons (season totals)
+# min_games for leaderboards: see config/settings.yaml (min_games_default)
+#
+# Volume gates below are configurable heuristics (not from an external study).
+# Goal: exclude low-usage players from peer cohorts so Z-scores are meaningful.
+# Tune in this file as you validate against real seasons.
+
+min_qualified_peers: 10
+
+volume_gates:
+  QB:
+    passing_attempts: 200   # ~12 attempts/game over a full starter season
+  RB:
+    carries: 100            # ~6 carries/game
+  WR:
+    targets: 50             # opportunity-based (preferred over receptions)
+  TE:
+    targets: 40
+  default:
+    games: 8

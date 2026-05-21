@@ -1,0 +1,4 @@
+# Fantasy Tracker app settings
+
+# Default minimum games for leaderboards and peer-Z qualification (half a 17-game season)
+min_games_default: 8

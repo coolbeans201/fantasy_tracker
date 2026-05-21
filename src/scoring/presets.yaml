@@ -1,0 +1,34 @@
+# Fantasy scoring presets (per week)
+
+standard:
+  passing_yards: 0.04
+  passing_tds: 4
+  interceptions: -2
+  rushing_yards: 0.1
+  rushing_tds: 6
+  receiving_yards: 0.1
+  receiving_tds: 6
+  receptions: 0
+  fumbles_lost: -2
+
+half_ppr:
+  passing_yards: 0.04
+  passing_tds: 4
+  interceptions: -2
+  rushing_yards: 0.1
+  rushing_tds: 6
+  receiving_yards: 0.1
+  receiving_tds: 6
+  receptions: 0.5
+  fumbles_lost: -2
+
+full_ppr:
+  passing_yards: 0.04
+  passing_tds: 4
+  interceptions: -2
+  rushing_yards: 0.1
+  rushing_tds: 6
+  receiving_yards: 0.1
+  receiving_tds: 6
+  receptions: 1
+  fumbles_lost: -2

@@ -1,0 +1,172 @@
+"""DuckDB connection helpers."""
+
+
+
+from __future__ import annotations
+
+
+
+from pathlib import Path
+
+
+
+import duckdb
+
+
+
+from src.db.maintenance import (
+    players_table_needs_rebuild,
+    recompute_games_played,
+    rebuild_players_table,
+    refresh_player_display_names,
+)
+
+
+
+ROOT = Path(__file__).resolve().parents[2]
+
+DATA_DIR = ROOT / "data"
+
+DB_PATH = DATA_DIR / "fantasy_tracker.duckdb"
+
+SCHEMA_PATH = Path(__file__).parent / "schema.sql"
+
+
+
+__all__ = [
+
+    "DATA_DIR",
+
+    "DB_PATH",
+
+    "db_exists",
+
+    "get_connection",
+
+    "init_schema",
+
+    "list_ingested_seasons",
+
+    "players_table_needs_rebuild",
+
+    "recompute_games_played",
+
+    "rebuild_players_table",
+
+    "refresh_player_display_names",
+
+]
+
+
+
+
+
+def ensure_data_dir() -> Path:
+
+    DATA_DIR.mkdir(parents=True, exist_ok=True)
+
+    return DATA_DIR
+
+
+
+
+
+def get_connection(read_only: bool = False) -> duckdb.DuckDBPyConnection:
+
+    ensure_data_dir()
+
+    return duckdb.connect(str(DB_PATH), read_only=read_only)
+
+
+
+
+
+def _migrate_stat_columns(conn: duckdb.DuckDBPyConnection) -> None:
+
+    """Add stat columns to existing databases created before schema expansion."""
+
+    from src.stats_columns import STAT_COLUMNS
+
+
+
+    tables = ("weekly_stats", "season_team_stats", "season_stats")
+
+    for table in tables:
+
+        for col in STAT_COLUMNS:
+
+            try:
+
+                conn.execute(
+
+                    f"ALTER TABLE {table} ADD COLUMN IF NOT EXISTS {col} DOUBLE DEFAULT 0"
+
+                )
+
+            except duckdb.Error:
+
+                pass
+
+
+
+
+
+def init_schema(conn: duckdb.DuckDBPyConnection | None = None) -> None:
+
+    close = False
+
+    if conn is None:
+
+        conn = get_connection()
+
+        close = True
+
+    sql = SCHEMA_PATH.read_text(encoding="utf-8")
+
+    conn.execute(sql)
+
+    _migrate_stat_columns(conn)
+
+    if close:
+
+        conn.close()
+
+
+
+
+
+def db_exists() -> bool:
+
+    return DB_PATH.exists()
+
+
+
+
+
+def list_ingested_seasons(conn: duckdb.DuckDBPyConnection | None = None) -> list[int]:
+
+    close = False
+
+    if conn is None:
+
+        if not db_exists():
+
+            return []
+
+        conn = get_connection(read_only=True)
+
+        close = True
+
+    rows = conn.execute(
+
+        "SELECT season FROM ingest_manifest ORDER BY season DESC"
+
+    ).fetchall()
+
+    if close:
+
+        conn.close()
+
+    return [int(r[0]) for r in rows]
+
+

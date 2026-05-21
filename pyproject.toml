@@ -1,0 +1,33 @@
+[project]
+name = "fantasy-tracker"
+version = "0.1.0"
+description = "Fantasy Tracker — NFL fantasy analytics for completed seasons"
+readme = "README.md"
+requires-python = ">=3.12"
+license = { text = "MIT" }
+dependencies = [
+    "streamlit>=1.32,<2",
+    "duckdb>=1.1,<2",
+    # Pin below 3.x; 3.14+ needs pandas 2.3.3+ for Windows wheels
+    "pandas>=2.2.2,<3; python_version < '3.14'",
+    "pandas>=2.3.3,<3; python_version >= '3.14'",
+    "nflreadpy>=0.1.5",
+    "pyyaml>=6.0",
+    "rapidfuzz>=3.6",
+    "matplotlib>=3.8",
+]
+
+[project.optional-dependencies]
+dev = ["ruff>=0.4", "pytest>=8.0"]
+
+[build-system]
+requires = ["setuptools>=69"]
+build-backend = "setuptools.build_meta"
+
+[tool.setuptools.packages.find]
+where = ["."]
+include = ["src", "src.*", "app", "app.*"]
+
+[tool.ruff]
+line-length = 100
+target-version = "py312"
