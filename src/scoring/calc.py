@@ -77,3 +77,20 @@ def resolve_preset(display_or_key: str) -> str:
     if display_or_key in SCORING_PRESETS:
         return display_or_key
     raise ValueError(f"Unknown scoring preset: {display_or_key}")
+
+
+def offensive_fp_column(preset: str) -> str:
+    return fp_column_for_preset(resolve_preset(preset))
+
+
+def fantasy_points_sql_expr(preset: str, prefix: str = "") -> str:
+    """
+    SQL expression for leaderboard fantasy points.
+    Kickers use ESPN kicker points; other positions use the offensive preset.
+    """
+    p = f"{prefix}." if prefix else ""
+    off_col = offensive_fp_column(preset)
+    return (
+        f"CASE WHEN {p}position = 'K' THEN {p}fantasy_points_kicker "
+        f"ELSE {p}{off_col} END"
+    )

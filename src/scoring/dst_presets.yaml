@@ -1,0 +1,20 @@
+# ESPN default D/ST scoring (defense/special teams unit per NFL team)
+# Points-allowed tiers use opponent points scored that week.
+
+sacks: 1
+def_interceptions: 2
+fumble_recoveries: 2
+safeties: 2
+blocked_kicks: 2
+def_touchdowns: 6
+return_touchdowns: 6
+
+# points_allowed tiers -> bonus points (ESPN default)
+points_allowed:
+  0: 10
+  1-6: 7
+  7-13: 4
+  14-20: 1
+  21-27: 0
+  28-34: -1
+  35+: -4

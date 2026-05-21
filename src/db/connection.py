@@ -82,30 +82,32 @@ def get_connection(read_only: bool = False) -> duckdb.DuckDBPyConnection:
 
 
 def _migrate_stat_columns(conn: duckdb.DuckDBPyConnection) -> None:
-
     """Add stat columns to existing databases created before schema expansion."""
-
+    from src.kicker_columns import KICKER_STAT_COLUMNS
     from src.stats_columns import STAT_COLUMNS
 
-
-
-    tables = ("weekly_stats", "season_team_stats", "season_stats")
-
-    for table in tables:
-
-        for col in STAT_COLUMNS:
-
+    player_tables = ("weekly_stats", "season_team_stats", "season_stats")
+    for table in player_tables:
+        for col in STAT_COLUMNS + KICKER_STAT_COLUMNS:
             try:
-
                 conn.execute(
-
                     f"ALTER TABLE {table} ADD COLUMN IF NOT EXISTS {col} DOUBLE DEFAULT 0"
-
                 )
-
             except duckdb.Error:
-
                 pass
+        for col in ("fantasy_points_kicker",):
+            try:
+                conn.execute(
+                    f"ALTER TABLE {table} ADD COLUMN IF NOT EXISTS {col} DOUBLE"
+                )
+            except duckdb.Error:
+                pass
+    try:
+        conn.execute(
+            "ALTER TABLE season_stats ADD COLUMN IF NOT EXISTS best_week_scoring VARCHAR"
+        )
+    except duckdb.Error:
+        pass
 
 
 

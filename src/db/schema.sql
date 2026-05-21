@@ -38,9 +38,19 @@ CREATE TABLE IF NOT EXISTS weekly_stats (
     receiving_tds DOUBLE DEFAULT 0,
     receiving_fumbles_lost DOUBLE DEFAULT 0,
     fumbles_lost DOUBLE DEFAULT 0,
+    pat_made DOUBLE DEFAULT 0,
+    pat_missed DOUBLE DEFAULT 0,
+    fg_missed DOUBLE DEFAULT 0,
+    fg_made_0_19 DOUBLE DEFAULT 0,
+    fg_made_20_29 DOUBLE DEFAULT 0,
+    fg_made_30_39 DOUBLE DEFAULT 0,
+    fg_made_40_49 DOUBLE DEFAULT 0,
+    fg_made_50_59 DOUBLE DEFAULT 0,
+    fg_made_60_ DOUBLE DEFAULT 0,
     fantasy_points_standard DOUBLE,
     fantasy_points_half_ppr DOUBLE,
     fantasy_points_full_ppr DOUBLE,
+    fantasy_points_kicker DOUBLE,
     PRIMARY KEY (player_id, season, week, season_type, team)
 );
 
@@ -67,9 +77,19 @@ CREATE TABLE IF NOT EXISTS season_team_stats (
     receiving_tds DOUBLE DEFAULT 0,
     receiving_fumbles_lost DOUBLE DEFAULT 0,
     fumbles_lost DOUBLE DEFAULT 0,
+    pat_made DOUBLE DEFAULT 0,
+    pat_missed DOUBLE DEFAULT 0,
+    fg_missed DOUBLE DEFAULT 0,
+    fg_made_0_19 DOUBLE DEFAULT 0,
+    fg_made_20_29 DOUBLE DEFAULT 0,
+    fg_made_30_39 DOUBLE DEFAULT 0,
+    fg_made_40_49 DOUBLE DEFAULT 0,
+    fg_made_50_59 DOUBLE DEFAULT 0,
+    fg_made_60_ DOUBLE DEFAULT 0,
     fantasy_points_standard DOUBLE,
     fantasy_points_half_ppr DOUBLE,
     fantasy_points_full_ppr DOUBLE,
+    fantasy_points_kicker DOUBLE,
     PRIMARY KEY (player_id, season, team)
 );
 
@@ -96,15 +116,62 @@ CREATE TABLE IF NOT EXISTS season_stats (
     receiving_tds DOUBLE DEFAULT 0,
     receiving_fumbles_lost DOUBLE DEFAULT 0,
     fumbles_lost DOUBLE DEFAULT 0,
+    pat_made DOUBLE DEFAULT 0,
+    pat_missed DOUBLE DEFAULT 0,
+    fg_missed DOUBLE DEFAULT 0,
+    fg_made_0_19 DOUBLE DEFAULT 0,
+    fg_made_20_29 DOUBLE DEFAULT 0,
+    fg_made_30_39 DOUBLE DEFAULT 0,
+    fg_made_40_49 DOUBLE DEFAULT 0,
+    fg_made_50_59 DOUBLE DEFAULT 0,
+    fg_made_60_ DOUBLE DEFAULT 0,
     fantasy_points_standard DOUBLE,
     fantasy_points_half_ppr DOUBLE,
     fantasy_points_full_ppr DOUBLE,
+    fantasy_points_kicker DOUBLE,
     best_week INTEGER,
     best_week_fp DOUBLE,
     best_week_scoring VARCHAR,
     PRIMARY KEY (player_id, season)
 );
 
+CREATE TABLE IF NOT EXISTS team_defense_weekly (
+    team VARCHAR NOT NULL,
+    season INTEGER NOT NULL,
+    week INTEGER NOT NULL,
+    season_type VARCHAR NOT NULL,
+    games INTEGER,
+    sacks DOUBLE DEFAULT 0,
+    def_interceptions DOUBLE DEFAULT 0,
+    fumble_recoveries DOUBLE DEFAULT 0,
+    safeties DOUBLE DEFAULT 0,
+    blocked_kicks DOUBLE DEFAULT 0,
+    def_touchdowns DOUBLE DEFAULT 0,
+    return_touchdowns DOUBLE DEFAULT 0,
+    points_allowed DOUBLE DEFAULT 0,
+    fantasy_points_dst DOUBLE,
+    PRIMARY KEY (team, season, week, season_type)
+);
+
+CREATE TABLE IF NOT EXISTS team_defense_season (
+    team VARCHAR NOT NULL,
+    season INTEGER NOT NULL,
+    games INTEGER,
+    sacks DOUBLE DEFAULT 0,
+    def_interceptions DOUBLE DEFAULT 0,
+    fumble_recoveries DOUBLE DEFAULT 0,
+    safeties DOUBLE DEFAULT 0,
+    blocked_kicks DOUBLE DEFAULT 0,
+    def_touchdowns DOUBLE DEFAULT 0,
+    return_touchdowns DOUBLE DEFAULT 0,
+    points_allowed DOUBLE DEFAULT 0,
+    fantasy_points_dst DOUBLE,
+    best_week INTEGER,
+    best_week_fp DOUBLE,
+    PRIMARY KEY (team, season)
+);
+
 CREATE INDEX IF NOT EXISTS idx_weekly_season ON weekly_stats(season);
 CREATE INDEX IF NOT EXISTS idx_season_pos ON season_stats(season, position);
 CREATE INDEX IF NOT EXISTS idx_season_team ON season_team_stats(season, team);
+CREATE INDEX IF NOT EXISTS idx_dst_season ON team_defense_season(season);

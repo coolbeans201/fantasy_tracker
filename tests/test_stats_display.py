@@ -54,12 +54,14 @@ def test_combined_fumbles_sums_components_when_total_missing():
 
 
 def test_build_stat_compare_frame_uses_labels():
+    from src.stats_columns import rename_stats_for_display
+
     row_a = {"rushing_yards": 1000, "rushing_fumbles_lost": 1, "receiving_fumbles_lost": 0}
     row_b = {"rushing_yards": 800, "fumbles_lost": 2}
-    df = build_stat_compare_frame(row_a, row_b, "Alice", "Bob", ["RB"])
-    assert "stat" in df.columns
-    assert "Rushing Yards" in df["stat"].values
-    assert "Fumbles Lost" in df["stat"].values
-    fum = df.loc[df["stat"] == "Fumbles Lost"].iloc[0]
+    df = rename_stats_for_display(build_stat_compare_frame(row_a, row_b, "Alice", "Bob", ["RB"]))
+    assert "Stat" in df.columns
+    assert "Rushing Yards" in df["Stat"].values
+    assert "Fumbles Lost" in df["Stat"].values
+    fum = df.loc[df["Stat"] == "Fumbles Lost"].iloc[0]
     assert fum["Alice"] == 1
     assert fum["Bob"] == 2

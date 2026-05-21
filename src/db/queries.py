@@ -5,14 +5,23 @@ from __future__ import annotations
 import duckdb
 import pandas as pd
 
-from src.positions import expand_position_filter
-from src.scoring.calc import fp_column_for_preset, resolve_preset
+from src.entities import dst_team_from_entity, is_dst_entity
+from src.teams import dst_entity_display_name, team_search_patterns
+from src.positions import (
+    DST_POSITION,
+    expand_position_filter,
+    is_dst_only_selection,
+    normalize_leader_selection,
+)
+from src.scoring.calc import fantasy_points_sql_expr, offensive_fp_column, resolve_preset
+from src.scoring.special import DST_FP_COLUMN
 from src.settings import get_min_games_default
-from src.stats_columns import sql_stat_select
+from src.stats_columns import sql_player_stat_select, sql_stat_select
+from src.team_dst_columns import sql_dst_stat_select
 
 
 def get_fp_column(preset: str) -> str:
-    return fp_column_for_preset(resolve_preset(preset))
+    return offensive_fp_column(preset)
 
 
 def _fetch_df(
@@ -30,22 +39,58 @@ def _fetch_df(
     return df
 
 
-def season_leaders(
+def _split_leader_positions(positions: list[str] | None) -> tuple[list[str] | None, bool]:
+    selected = normalize_leader_selection(positions)
+    want_dst = is_dst_only_selection(selected)
+    if want_dst:
+        return None, True
+    return selected, False
+
+
+def dst_season_leaders(
     conn: duckdb.DuckDBPyConnection,
     season: int,
-    preset: str,
-    positions: list[str] | None = None,
     team: str | None = None,
     min_games: int | None = None,
-    use_team_splits: bool = False,
 ) -> pd.DataFrame:
     if min_games is None:
         min_games = get_min_games_default()
 
-    fp_col = get_fp_column(preset)
+    stats = sql_dst_stat_select()
+    query = f"""
+        SELECT
+            team AS player_name,
+            '{DST_POSITION}' AS position,
+            team,
+            season,
+            games,
+            {DST_FP_COLUMN} AS fantasy_points,
+            {stats}
+        FROM team_defense_season
+        WHERE season = ?
+          AND games >= ?
+    """
+    params: list = [season, min_games]
+    if team:
+        query += " AND team = ?"
+        params.append(team)
+    query += f" ORDER BY {DST_FP_COLUMN} DESC NULLS LAST"
+    return _fetch_df(conn, query, params)
+
+
+def _player_season_leaders(
+    conn: duckdb.DuckDBPyConnection,
+    season: int,
+    preset: str,
+    positions: list[str] | None,
+    team: str | None,
+    min_games: int,
+    use_team_splits: bool,
+) -> pd.DataFrame:
+    fp_expr = fantasy_points_sql_expr(preset)
     table = "season_team_stats" if (use_team_splits or team) else "season_stats"
     team_col = "team" if table == "season_team_stats" else "teams"
-    stats = sql_stat_select()
+    stats = sql_player_stat_select()
 
     query = f"""
         SELECT
@@ -55,7 +100,7 @@ def season_leaders(
             position,
             {team_col} AS team,
             games,
-            {fp_col} AS fantasy_points,
+            {fp_expr} AS fantasy_points,
             {stats}
         FROM {table}
         WHERE season = ?
@@ -77,8 +122,126 @@ def season_leaders(
         query += " AND teams LIKE ?"
         params.append(f"%{team}%")
 
-    query += f" ORDER BY {fp_col} DESC NULLS LAST"
+    query += f" ORDER BY fantasy_points DESC NULLS LAST"
     return _fetch_df(conn, query, params)
+
+
+def season_leaders(
+    conn: duckdb.DuckDBPyConnection,
+    season: int,
+    preset: str,
+    positions: list[str] | None = None,
+    team: str | None = None,
+    min_games: int | None = None,
+    use_team_splits: bool = False,
+) -> pd.DataFrame:
+    if min_games is None:
+        min_games = get_min_games_default()
+
+    player_pos, want_dst = _split_leader_positions(positions)
+    frames: list[pd.DataFrame] = []
+
+    if want_dst and not use_team_splits:
+        frames.append(dst_season_leaders(conn, season, team=team, min_games=min_games))
+    elif player_pos:
+        frames.append(
+            _player_season_leaders(
+                conn, season, preset, player_pos, team, min_games, use_team_splits
+            )
+        )
+
+    if not frames:
+        return pd.DataFrame()
+    if len(frames) == 1:
+        return frames[0]
+    return pd.concat(frames, ignore_index=True)
+
+
+def dst_team_seasons(conn: duckdb.DuckDBPyConnection, team: str) -> pd.DataFrame:
+    stats = sql_dst_stat_select()
+    return _fetch_df(
+        conn,
+        f"""
+        SELECT
+            team AS player_name,
+            season,
+            '{DST_POSITION}' AS position,
+            team AS teams,
+            games,
+            {DST_FP_COLUMN} AS fantasy_points,
+            best_week,
+            best_week_fp,
+            {stats}
+        FROM team_defense_season
+        WHERE team = ?
+        ORDER BY season
+        """,
+        [team],
+    )
+
+
+def dst_team_weekly(
+    conn: duckdb.DuckDBPyConnection,
+    team: str,
+    season: int,
+) -> pd.DataFrame:
+    stats = sql_dst_stat_select()
+    return _fetch_df(
+        conn,
+        f"""
+        SELECT
+            week,
+            team,
+            '{DST_POSITION}' AS position,
+            games,
+            {DST_FP_COLUMN} AS fantasy_points,
+            {stats}
+        FROM team_defense_weekly
+        WHERE team = ? AND season = ? AND season_type = 'REG'
+        ORDER BY week
+        """,
+        [team, season],
+    )
+
+
+def dst_season_stats_for_peer_analysis(
+    conn: duckdb.DuckDBPyConnection,
+    season: int,
+    min_games: int | None = None,
+) -> pd.DataFrame:
+    if min_games is None:
+        min_games = get_min_games_default()
+    return _fetch_df(
+        conn,
+        f"""
+        SELECT team AS player_id, season, '{DST_POSITION}' AS position, games,
+               {DST_FP_COLUMN} AS fantasy_points
+        FROM team_defense_season
+        WHERE season = ? AND games >= ?
+        """,
+        [season, min_games],
+    )
+
+
+def entity_seasons(
+    conn: duckdb.DuckDBPyConnection,
+    entity_id: str,
+    preset: str,
+) -> pd.DataFrame:
+    if is_dst_entity(entity_id):
+        return dst_team_seasons(conn, dst_team_from_entity(entity_id))
+    return player_seasons(conn, entity_id, preset)
+
+
+def entity_weekly(
+    conn: duckdb.DuckDBPyConnection,
+    entity_id: str,
+    season: int,
+    preset: str,
+) -> pd.DataFrame:
+    if is_dst_entity(entity_id):
+        return dst_team_weekly(conn, dst_team_from_entity(entity_id), season)
+    return player_weekly(conn, entity_id, season, preset)
 
 
 def player_seasons(
@@ -86,14 +249,14 @@ def player_seasons(
     player_id: str,
     preset: str,
 ) -> pd.DataFrame:
-    fp_col = get_fp_column(preset)
-    stats = sql_stat_select()
+    fp_expr = fantasy_points_sql_expr(preset)
+    stats = sql_player_stat_select()
     return _fetch_df(
         conn,
         f"""
         SELECT
             player_name, season, position, teams, games,
-            {fp_col} AS fantasy_points,
+            {fp_expr} AS fantasy_points,
             best_week, best_week_fp,
             {stats}
         FROM season_stats
@@ -110,15 +273,15 @@ def player_team_splits(
     season: int,
     preset: str,
 ) -> pd.DataFrame:
-    fp_col = get_fp_column(preset)
-    stats = sql_stat_select()
+    fp_expr = fantasy_points_sql_expr(preset)
+    stats = sql_player_stat_select()
     return _fetch_df(
         conn,
         f"""
-        SELECT season, team, games, position, {fp_col} AS fantasy_points, {stats}
+        SELECT season, team, games, position, {fp_expr} AS fantasy_points, {stats}
         FROM season_team_stats
         WHERE player_id = ? AND season = ?
-        ORDER BY fantasy_points DESC
+        ORDER BY team
         """,
         [player_id, season],
     )
@@ -130,12 +293,12 @@ def player_weekly(
     season: int,
     preset: str,
 ) -> pd.DataFrame:
-    fp_col = get_fp_column(preset)
-    stats = sql_stat_select()
+    fp_expr = fantasy_points_sql_expr(preset)
+    stats = sql_player_stat_select()
     return _fetch_df(
         conn,
         f"""
-        SELECT week, team, position, games, {fp_col} AS fantasy_points, {stats}
+        SELECT week, team, position, games, {fp_expr} AS fantasy_points, {stats}
         FROM weekly_stats
         WHERE player_id = ? AND season = ? AND season_type = 'REG'
         ORDER BY week
@@ -150,64 +313,81 @@ def season_stats_for_peer_analysis(
     preset: str,
     min_games: int | None = None,
 ) -> pd.DataFrame:
-    """All season rows with full stats for Z-score cohorts."""
     if min_games is None:
         min_games = get_min_games_default()
-    fp_col = get_fp_column(preset)
+
+    fp_expr = fantasy_points_sql_expr(preset)
     stats = sql_stat_select()
-    cols = ["player_id", "season", "position", "games", "fantasy_points"]
     if season is not None:
-        df = _fetch_df(
+        return _fetch_df(
             conn,
             f"""
-            SELECT player_id, season, position, games, {fp_col} AS fantasy_points, {stats}
+            SELECT player_id, season, position, games, {fp_expr} AS fantasy_points, {stats}
             FROM season_stats WHERE season = ? AND games >= ?
             """,
             [season, min_games],
         )
-    else:
-        df = _fetch_df(
-            conn,
-            f"""
-            SELECT player_id, season, position, games, {fp_col} AS fantasy_points, {stats}
-            FROM season_stats WHERE games >= ?
-            """,
-            [min_games],
-        )
-    if df.empty and len(df.columns) == 0:
-        return pd.DataFrame(columns=cols)
-    return df
+    return _fetch_df(
+        conn,
+        f"""
+        SELECT player_id, season, position, games, {fp_expr} AS fantasy_points, {stats}
+        FROM season_stats WHERE games >= ?
+        """,
+        [min_games],
+    )
+
+
+def entity_display_label(conn: duckdb.DuckDBPyConnection, entity_id: str) -> str:
+    """Human-readable name for a player or dst:TEAM entity."""
+    if is_dst_entity(entity_id):
+        from src.entities import dst_display_name, dst_team_from_entity
+
+        return dst_display_name(dst_team_from_entity(entity_id))
+    row = conn.execute(
+        "SELECT player_name FROM players WHERE player_id = ?",
+        [entity_id],
+    ).fetchone()
+    return str(row[0]) if row else entity_id
+
+
+def entity_seasons_available(
+    conn: duckdb.DuckDBPyConnection,
+    entity_id: str,
+    preset: str,
+) -> list[int]:
+    df = entity_seasons(conn, entity_id, preset)
+    if df.empty or "season" not in df.columns:
+        return []
+    return sorted(int(s) for s in df["season"].dropna().unique())
+
+
+def compare_entities(
+    conn: duckdb.DuckDBPyConnection,
+    entity_id_a: str,
+    entity_id_b: str,
+    preset: str,
+    season: int | None = None,
+) -> tuple[pd.DataFrame, pd.DataFrame]:
+    df_a = entity_seasons(conn, entity_id_a, preset)
+    df_b = entity_seasons(conn, entity_id_b, preset)
+    if season is not None:
+        yr = int(season)
+        df_a = df_a[df_a["season"].astype(int) == yr]
+        df_b = df_b[df_b["season"].astype(int) == yr]
+    for frame, eid in ((df_a, entity_id_a), (df_b, entity_id_b)):
+        if not frame.empty:
+            frame["player_id"] = eid
+    return df_a, df_b
 
 
 def compare_players(
     conn: duckdb.DuckDBPyConnection,
-    player_a: str,
-    player_b: str,
+    player_id_a: str,
+    player_id_b: str,
     preset: str,
     season: int | None = None,
 ) -> tuple[pd.DataFrame, pd.DataFrame]:
-    fp_col = get_fp_column(preset)
-    stats = sql_stat_select()
-    if season:
-        q = f"""
-            SELECT player_id, player_name, season, teams, games, position,
-                   {fp_col} AS fantasy_points, {stats}
-            FROM season_stats
-            WHERE player_id IN (?, ?) AND season = ?
-        """
-        df = _fetch_df(conn, q, [player_a, player_b, season])
-    else:
-        q = f"""
-            SELECT player_id, player_name, season, teams, games, position,
-                   {fp_col} AS fantasy_points, {stats}
-            FROM season_stats
-            WHERE player_id IN (?, ?)
-            ORDER BY player_id, season
-        """
-        df = _fetch_df(conn, q, [player_a, player_b])
-    a = df[df["player_id"] == player_a].copy()
-    b = df[df["player_id"] == player_b].copy()
-    return a, b
+    return compare_entities(conn, player_id_a, player_id_b, preset, season=season)
 
 
 def search_players(
@@ -215,37 +395,98 @@ def search_players(
     query: str = "",
     limit: int = 500,
 ) -> pd.DataFrame:
+    entities = search_fantasy_entities(conn, query=query, limit=limit)
+    if entities.empty:
+        return entities
+    players = entities[~entities["entity_id"].str.startswith("dst:")].copy()
+    return players.rename(columns={"entity_id": "player_id"})
+
+
+def search_fantasy_entities(
+    conn: duckdb.DuckDBPyConnection,
+    query: str = "",
+    limit: int = 500,
+) -> pd.DataFrame:
+    """Players (player_id) and team defenses (dst:TEAM)."""
     if query.strip():
-        pattern = f"%{query.strip()}%"
-        return _fetch_df(
+        pattern, team_codes = team_search_patterns(query)
+        dst_clauses = ["team ILIKE ?"]
+        params: list = [pattern, pattern]
+        if team_codes:
+            placeholders = ",".join(["?"] * len(team_codes))
+            dst_clauses.append(f"team IN ({placeholders})")
+            params.extend(team_codes)
+        dst_where = " OR ".join(dst_clauses)
+        params.append(limit)
+        result = _fetch_df(
             conn,
-            """
-            SELECT player_id, player_name, position, last_season
-            FROM players
-            WHERE player_name ILIKE ?
+            f"""
+            SELECT entity_id, player_name, position, last_season FROM (
+                SELECT
+                    player_id AS entity_id,
+                    player_name,
+                    position,
+                    last_season
+                FROM players
+                WHERE player_name ILIKE ?
+                UNION ALL
+                SELECT
+                    'dst:' || team AS entity_id,
+                    team AS player_name,
+                    '{DST_POSITION}' AS position,
+                    MAX(season) AS last_season
+                FROM team_defense_season
+                WHERE {dst_where}
+                GROUP BY team
+            )
             ORDER BY last_season DESC NULLS LAST, player_name
             LIMIT ?
             """,
-            [pattern, limit],
+            params,
         )
-    return _fetch_df(
+        return _label_dst_search_results(result)
+    result = _fetch_df(
         conn,
-        """
-        SELECT player_id, player_name, position, last_season
-        FROM players
+        f"""
+        SELECT entity_id, player_name, position, last_season FROM (
+            SELECT player_id AS entity_id, player_name, position, last_season
+            FROM players
+            UNION ALL
+            SELECT
+                'dst:' || team AS entity_id,
+                team AS player_name,
+                '{DST_POSITION}' AS position,
+                MAX(season) AS last_season
+            FROM team_defense_season
+            GROUP BY team
+        )
         ORDER BY last_season DESC NULLS LAST, player_name
         LIMIT ?
         """,
         [limit],
     )
+    return _label_dst_search_results(result)
+
+
+def _label_dst_search_results(df: pd.DataFrame) -> pd.DataFrame:
+    if df.empty or "entity_id" not in df.columns:
+        return df
+    out = df.copy()
+    mask = out["entity_id"].astype(str).str.startswith("dst:")
+    if mask.any():
+        out.loc[mask, "player_name"] = out.loc[mask, "player_name"].apply(dst_entity_display_name)
+    return out
 
 
 def teams_for_season(conn: duckdb.DuckDBPyConnection, season: int) -> list[str]:
     rows = conn.execute(
         """
-        SELECT DISTINCT team FROM season_team_stats
-        WHERE season = ? ORDER BY team
+        SELECT DISTINCT team FROM (
+            SELECT team FROM season_team_stats WHERE season = ?
+            UNION
+            SELECT team FROM team_defense_season WHERE season = ?
+        ) ORDER BY team
         """,
-        [season],
+        [season, season],
     ).fetchall()
-    return [r[0] for r in rows if r[0]]
+    return [str(r[0]) for r in rows]

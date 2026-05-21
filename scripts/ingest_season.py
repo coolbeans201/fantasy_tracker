@@ -21,14 +21,22 @@ from src.db.maintenance import (  # noqa: E402
     rebuild_players_table,
     refresh_player_display_names,
 )
+from src.kicker_columns import KICKER_STAT_COLUMNS, NFLVERSE_KICKER_MAP  # noqa: E402
 from src.positions import normalize_fantasy_position  # noqa: E402
 from src.scoring.calc import apply_all_presets  # noqa: E402
+from src.scoring.special import (  # noqa: E402
+    DST_FP_COLUMN,
+    KICKER_FP_COLUMN,
+    apply_dst_points,
+    apply_kicker_points,
+)
 from src.stats_columns import (  # noqa: E402
     FANTASY_POINT_COLUMNS,
     NFLVERSE_COL_MAP,
     STAT_COLUMNS,
     resolve_player_name,
 )
+from src.team_dst_columns import DST_STAT_COLUMNS, NFLVERSE_TEAM_DST_MAP  # noqa: E402
 
 
 def _to_pandas(data) -> pd.DataFrame:
@@ -58,11 +66,15 @@ def normalize_weekly(df: pd.DataFrame) -> pd.DataFrame:
         if col not in out.columns:
             out[col] = None
 
-    for col in STAT_COLUMNS:
+    for col in STAT_COLUMNS + KICKER_STAT_COLUMNS:
         if col not in out.columns:
             out[col] = 0
         else:
             out[col] = pd.to_numeric(out[col], errors="coerce").fillna(0)
+
+    for src, dst in NFLVERSE_KICKER_MAP.items():
+        if src in df.columns:
+            out[dst] = pd.to_numeric(df[src], errors="coerce").fillna(out.get(dst, 0))
 
     if "week" in out.columns:
         out["week"] = pd.to_numeric(out["week"], errors="coerce")
@@ -78,7 +90,7 @@ def normalize_weekly(df: pd.DataFrame) -> pd.DataFrame:
     out = out[out["position"].notna()].copy()
     dropped_skill = before_skill - len(out)
     if dropped_skill:
-        print(f"  Dropped {dropped_skill} weekly rows (non-skill positions: not QB/RB/WR/TE)")
+        print(f"  Dropped {dropped_skill} weekly rows (not QB/RB/WR/TE/K)")
 
     # Older nflverse rows may lack player_id; coalesce from source frame if needed
     for alt_id in ("gsis_id", "nfl_id", "player_id"):
@@ -108,8 +120,8 @@ def _primary_position(positions: pd.Series) -> str | None:
 
 def build_aggregates(weekly: pd.DataFrame) -> tuple[pd.DataFrame, pd.DataFrame, pd.DataFrame]:
     """Build season and season_team aggregates."""
-    stat_cols = [c for c in STAT_COLUMNS if c in weekly.columns]
-    fp_cols = [c for c in FANTASY_POINT_COLUMNS if c in weekly.columns]
+    stat_cols = [c for c in STAT_COLUMNS + KICKER_STAT_COLUMNS if c in weekly.columns]
+    fp_cols = [c for c in FANTASY_POINT_COLUMNS + [KICKER_FP_COLUMN] if c in weekly.columns]
     sum_agg = {c: (c, "sum") for c in stat_cols} | {c: (c, "sum") for c in fp_cols}
 
     # PK is (player_id, season, team) — do not split on position
@@ -135,13 +147,32 @@ def build_aggregates(weekly: pd.DataFrame) -> tuple[pd.DataFrame, pd.DataFrame, 
         )
     )
 
-    idx = weekly.groupby(["player_id", "season"])["fantasy_points_half_ppr"].idxmax()
-    idx = idx.dropna()
-    best = weekly.loc[idx, ["player_id", "season", "week", "fantasy_points_half_ppr"]].rename(
-        columns={"week": "best_week", "fantasy_points_half_ppr": "best_week_fp"}
-    )
-    season = season.merge(best, on=["player_id", "season"], how="left")
-    season["best_week_scoring"] = "half_ppr"
+    best_rows = []
+    for (pid, yr), group in weekly.groupby(["player_id", "season"]):
+        pos = group["position"].iloc[0]
+        fp_col = (
+            KICKER_FP_COLUMN
+            if pos == "K"
+            else "fantasy_points_half_ppr"
+        )
+        if fp_col not in group.columns or group[fp_col].isna().all():
+            continue
+        idx = group[fp_col].idxmax()
+        if pd.isna(idx):
+            continue
+        row = group.loc[idx]
+        best_rows.append(
+            {
+                "player_id": pid,
+                "season": yr,
+                "best_week": row["week"],
+                "best_week_fp": row[fp_col],
+                "best_week_scoring": "kicker" if pos == "K" else "half_ppr",
+            }
+        )
+    if best_rows:
+        best = pd.DataFrame(best_rows)
+        season = season.merge(best, on=["player_id", "season"], how="left")
 
     players = weekly.groupby("player_id", as_index=False).agg(
         player_name=("player_name", "last"),
@@ -152,20 +183,80 @@ def build_aggregates(weekly: pd.DataFrame) -> tuple[pd.DataFrame, pd.DataFrame, 
     return team, season, players
 
 
+def normalize_team_dst(df: pd.DataFrame) -> pd.DataFrame:
+    """Map nflverse team stats to D/ST schema (one row per team-week)."""
+    out = pd.DataFrame()
+    for src, dst in NFLVERSE_TEAM_DST_MAP.items():
+        if src in df.columns and dst not in out.columns:
+            out[dst] = df[src]
+
+    for col in ["team", "season", "week", "season_type", *DST_STAT_COLUMNS]:
+        if col not in out.columns:
+            out[col] = None if col in ("team", "season_type") else 0
+        elif col in DST_STAT_COLUMNS:
+            out[col] = pd.to_numeric(out[col], errors="coerce").fillna(0)
+
+    if "week" in out.columns:
+        out["week"] = pd.to_numeric(out["week"], errors="coerce")
+
+    out["games"] = 1
+    out = out[out["season_type"] == "REG"].copy()
+    out["team"] = out["team"].fillna("UNK").astype(str).str.strip()
+    out = out[out["team"].notna() & (out["team"] != "")]
+    return out
+
+
+def build_team_dst_aggregates(weekly: pd.DataFrame) -> pd.DataFrame:
+    stat_cols = [c for c in DST_STAT_COLUMNS if c in weekly.columns]
+    sum_agg = {c: (c, "sum") for c in stat_cols} | {DST_FP_COLUMN: (DST_FP_COLUMN, "sum")}
+
+    season = (
+        weekly.groupby(["team", "season"], as_index=False)
+        .agg(games=("week", "nunique"), **sum_agg)
+    )
+
+    best_rows = []
+    for (team, yr), group in weekly.groupby(["team", "season"]):
+        idx = group[DST_FP_COLUMN].idxmax()
+        if pd.isna(idx):
+            continue
+        row = group.loc[idx]
+        best_rows.append(
+            {
+                "team": team,
+                "season": yr,
+                "best_week": row["week"],
+                "best_week_fp": row[DST_FP_COLUMN],
+            }
+        )
+    if best_rows:
+        season = season.merge(pd.DataFrame(best_rows), on=["team", "season"], how="left")
+
+    return season
+
+
 def _table_columns(table: str) -> list[str]:
     meta = {
         "weekly": [
             "player_id", "player_name", "season", "week", "season_type", "team", "position",
-            "games", *STAT_COLUMNS, *FANTASY_POINT_COLUMNS,
+            "games", *STAT_COLUMNS, *KICKER_STAT_COLUMNS, *FANTASY_POINT_COLUMNS, KICKER_FP_COLUMN,
         ],
         "season_team": [
             "player_id", "player_name", "season", "team", "position", "games",
-            *STAT_COLUMNS, *FANTASY_POINT_COLUMNS,
+            *STAT_COLUMNS, *KICKER_STAT_COLUMNS, *FANTASY_POINT_COLUMNS, KICKER_FP_COLUMN,
         ],
         "season": [
             "player_id", "player_name", "season", "position", "teams", "games",
-            *STAT_COLUMNS, *FANTASY_POINT_COLUMNS,
+            *STAT_COLUMNS, *KICKER_STAT_COLUMNS, *FANTASY_POINT_COLUMNS, KICKER_FP_COLUMN,
             "best_week", "best_week_fp", "best_week_scoring",
+        ],
+        "team_dst_weekly": [
+            "team", "season", "week", "season_type", "games",
+            *DST_STAT_COLUMNS, DST_FP_COLUMN,
+        ],
+        "team_dst_season": [
+            "team", "season", "games", *DST_STAT_COLUMNS, DST_FP_COLUMN,
+            "best_week", "best_week_fp",
         ],
     }
     return meta[table]
@@ -176,23 +267,37 @@ def ingest_seasons(seasons: list[int], replace: bool = True) -> None:
     conn = get_connection()
 
     raw = _to_pandas(nfl.load_player_stats(seasons))
-    weekly = apply_all_presets(normalize_weekly(raw))
+    weekly = apply_kicker_points(apply_all_presets(normalize_weekly(raw)))
 
-    if weekly.empty:
+    raw_team = _to_pandas(nfl.load_team_stats(seasons))
+    weekly_dst = apply_dst_points(normalize_team_dst(raw_team))
+    season_dst = build_team_dst_aggregates(weekly_dst) if not weekly_dst.empty else pd.DataFrame()
+
+    if weekly.empty and weekly_dst.empty:
         print("No regular-season rows found.")
         conn.close()
         return
 
-    team, season_df, players_df = build_aggregates(weekly)
+    team, season_df, _players_df = build_aggregates(weekly) if not weekly.empty else (
+        pd.DataFrame(),
+        pd.DataFrame(),
+        pd.DataFrame(),
+    )
 
     def _insert(table: str, frame: pd.DataFrame, columns: list[str]) -> None:
-        subset = frame[columns].copy()
+        subset = frame.copy()
+        for col in columns:
+            if col not in subset.columns:
+                subset[col] = pd.NA
+        subset = subset[columns]
         if "player_id" in subset.columns:
             subset = subset[subset["player_id"].notna()].copy()
         pk_map = {
             "weekly_stats": ["player_id", "season", "week", "season_type", "team"],
             "season_team_stats": ["player_id", "season", "team"],
             "season_stats": ["player_id", "season"],
+            "team_defense_weekly": ["team", "season", "week", "season_type"],
+            "team_defense_season": ["team", "season"],
             "players": ["player_id"],
         }
         if table in pk_map:
@@ -203,8 +308,11 @@ def ingest_seasons(seasons: list[int], replace: bool = True) -> None:
                 print(f"  Deduped {before - len(subset)} duplicate rows for {table}")
         if subset.empty:
             return
+        cols_sql = ", ".join(columns)
         conn.register("_ingest_tmp", subset)
-        conn.execute(f"INSERT INTO {table} SELECT * FROM _ingest_tmp")
+        conn.execute(
+            f"INSERT INTO {table} ({cols_sql}) SELECT {cols_sql} FROM _ingest_tmp"
+        )
         conn.unregister("_ingest_tmp")
 
     for s in seasons:
@@ -212,15 +320,28 @@ def ingest_seasons(seasons: list[int], replace: bool = True) -> None:
             conn.execute("DELETE FROM weekly_stats WHERE season = ?", [s])
             conn.execute("DELETE FROM season_stats WHERE season = ?", [s])
             conn.execute("DELETE FROM season_team_stats WHERE season = ?", [s])
+            conn.execute("DELETE FROM team_defense_weekly WHERE season = ?", [s])
+            conn.execute("DELETE FROM team_defense_season WHERE season = ?", [s])
             conn.execute("DELETE FROM ingest_manifest WHERE season = ?", [s])
 
-        w = weekly[weekly["season"] == s]
-        t = team[team["season"] == s]
-        ss = season_df[season_df["season"] == s]
-        _insert("weekly_stats", w, _table_columns("weekly"))
-        _insert("season_team_stats", t, _table_columns("season_team"))
-        _insert("season_stats", ss, _table_columns("season"))
+        w = weekly[weekly["season"] == s] if not weekly.empty else pd.DataFrame()
+        t = team[team["season"] == s] if not team.empty else pd.DataFrame()
+        ss = season_df[season_df["season"] == s] if not season_df.empty else pd.DataFrame()
+        wd = weekly_dst[weekly_dst["season"] == s] if not weekly_dst.empty else pd.DataFrame()
+        sd = season_dst[season_dst["season"] == s] if not season_dst.empty else pd.DataFrame()
 
+        if not w.empty:
+            _insert("weekly_stats", w, _table_columns("weekly"))
+        if not t.empty:
+            _insert("season_team_stats", t, _table_columns("season_team"))
+        if not ss.empty:
+            _insert("season_stats", ss, _table_columns("season"))
+        if not wd.empty:
+            _insert("team_defense_weekly", wd, _table_columns("team_dst_weekly"))
+        if not sd.empty:
+            _insert("team_defense_season", sd, _table_columns("team_dst_season"))
+
+        row_count = len(w) + len(wd)
         conn.execute(
             """
             INSERT INTO ingest_manifest (season, ingested_at, row_count)
@@ -229,9 +350,9 @@ def ingest_seasons(seasons: list[int], replace: bool = True) -> None:
                 ingested_at = excluded.ingested_at,
                 row_count = excluded.row_count
             """,
-            [s, datetime.now(timezone.utc), len(w)],
+            [s, datetime.now(timezone.utc), row_count],
         )
-        print(f"Ingested season {s}: {len(w)} weekly rows")
+        print(f"Ingested season {s}: {len(w)} player weekly, {len(wd)} team-DST weekly rows")
 
     recompute_games_played(conn)
 

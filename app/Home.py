@@ -4,6 +4,7 @@ import streamlit as st
 
 from app.components import render_sidebar
 from src.db.connection import db_exists, list_ingested_seasons
+from src.ui_text import title_case_ui
 
 st.set_page_config(
     page_title="Fantasy Tracker",
@@ -34,7 +35,7 @@ with col3:
 
 st.divider()
 
-st.subheader("Getting started")
+st.subheader(title_case_ui("Getting started"))
 st.code(
     ".\\.venv\\Scripts\\python.exe scripts\\ingest_season.py --season 2023\n"
     ".\\.venv\\Scripts\\python.exe -m streamlit run app/Home.py",

@@ -14,8 +14,8 @@ from src.db.connection import (
     rebuild_players_table,
     refresh_player_display_names,
 )
-from src.db.queries import search_players
-from src.positions import FANTASY_POSITIONS
+from src.db.queries import search_fantasy_entities
+from src.positions import FANTASY_POSITIONS, leader_position_options
 from src.scoring.calc import DISPLAY_PRESETS
 from src.settings import get_min_games_default
 
@@ -51,37 +51,39 @@ def render_sidebar() -> dict:
         "preset": preset,
         "era_z": era_z,
         "min_games": min_games,
-        "fantasy_positions": FANTASY_POSITIONS,
+        "fantasy_positions": leader_position_options(),
     }
 
 
-def fuzzy_player_select(
+def fuzzy_entity_select(
     label: str,
     conn,
     key: str,
     default_name: str | None = None,
 ) -> str | None:
-    """Fuzzy autocomplete player picker. Returns player_id."""
+    """Fuzzy autocomplete picker. Returns player_id or dst:TEAM for team defenses."""
     search = st.text_input(
         f"Search {label}",
         key=f"{key}_search",
-        placeholder="Type name (e.g. Andrew Luck)",
+        placeholder="Name or team (e.g. Andrew Luck, Cardinals, DEN)",
     )
     query = search.strip()
     if len(query) < 2:
-        st.caption("Type at least 2 characters to search all ingested players (including retired).")
+        st.caption(
+            "Type at least 2 characters to search players and team defenses (DST)."
+        )
         return None
 
-    players_df = search_players(conn, query=query, limit=200)
-    if players_df.empty:
-        st.warning(f"No players matching “{query}”.")
+    entities_df = search_fantasy_entities(conn, query=query, limit=200)
+    if entities_df.empty:
+        st.warning(f"No players or defenses matching “{query}”.")
         return None
 
     labels = [
         f"{row.player_name} ({row.position}, last: {row.last_season})"
-        for row in players_df.itertuples()
+        for row in entities_df.itertuples()
     ]
-    label_to_id = dict(zip(labels, players_df["player_id"].tolist()))
+    label_to_id = dict(zip(labels, entities_df["entity_id"].tolist()))
 
     default_label = None
     if default_name:
@@ -105,6 +107,16 @@ def fuzzy_player_select(
 
     chosen = st.selectbox(label, options, index=idx, key=key)
     return label_to_id.get(chosen)
+
+
+def fuzzy_player_select(
+    label: str,
+    conn,
+    key: str,
+    default_name: str | None = None,
+) -> str | None:
+    """Backward-compatible alias for fuzzy_entity_select."""
+    return fuzzy_entity_select(label, conn, key, default_name=default_name)
 
 
 @st.cache_resource

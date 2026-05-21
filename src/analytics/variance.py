@@ -97,18 +97,30 @@ def compute_peer_z_era(
     return out
 
 
-def compute_career_z(player_seasons: pd.DataFrame, fp_col: str = "fantasy_points") -> pd.DataFrame:
-    """Z-score each season vs the player's own career."""
-    out = player_seasons.copy()
-    if len(out) < 2:
-        out["career_z"] = np.nan
+def compute_career_z(
+    player_seasons: pd.DataFrame,
+    fp_col: str = "fantasy_points",
+    min_games: int | None = None,
+) -> pd.DataFrame:
+    """
+    Z-score each season vs the player's own career mean/std.
+
+    Only seasons that pass min-games and position volume gates (same rules as
+    peer Z) are included in the baseline and receive a career Z value.
+    """
+    out = add_volume_flags(player_seasons.copy(), min_games=min_games)
+    out["career_z"] = np.nan
+
+    qualified = out[out["peer_qualified"]]
+    if len(qualified) < 2:
         return out
-    mean = out[fp_col].mean()
-    std = out[fp_col].std()
+
+    mean = qualified[fp_col].mean()
+    std = qualified[fp_col].std()
     if std == 0 or np.isnan(std):
-        out["career_z"] = np.nan
-    else:
-        out["career_z"] = (out[fp_col] - mean) / std
+        return out
+
+    out.loc[qualified.index, "career_z"] = (qualified[fp_col] - mean) / std
     return out
 
 

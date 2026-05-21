@@ -8,15 +8,54 @@ from app.components import fuzzy_player_select, get_db, render_sidebar
 from src.analytics.peer_z import peer_z_score
 from src.analytics.variance import add_volume_flags, load_thresholds
 from src.db.connection import db_exists
-from src.db.queries import compare_players, season_stats_for_peer_analysis
-from src.positions import normalize_fantasy_position
-from src.scoring.calc import fp_column_for_preset, resolve_preset
-from src.stats_columns import STAT_COLUMNS, build_stat_compare_frame
+from src.db.queries import (
+    compare_entities,
+    dst_season_stats_for_peer_analysis,
+    entity_display_label,
+    entity_seasons_available,
+    season_stats_for_peer_analysis,
+)
+from src.positions import (
+    COMPARE_GROUP_DST,
+    COMPARE_GROUP_KICKER,
+    COMPARE_GROUP_OFFENSE,
+    DST_POSITION,
+    compare_cohort,
+    compare_cohorts_compatible,
+    compare_incompatible_message,
+    is_dst_position,
+    normalize_fantasy_position,
+)
+from src.stats_columns import (
+    build_stat_compare_frame,
+    display_stats_for_positions,
+    rename_compare_career_merge,
+    rename_stats_for_display,
+)
+from src.ui_text import section_h3
+
+
+def _profile_position_key(position: str | None) -> str:
+    if is_dst_position(position):
+        return DST_POSITION
+    return normalize_fantasy_position(position) or str(position)
+
+
+def _peer_df_for_season(conn, season: int, preset: str, min_games: int, position: str | None):
+    if is_dst_position(position):
+        return dst_season_stats_for_peer_analysis(conn, season=season, min_games=min_games)
+    return season_stats_for_peer_analysis(
+        conn, season=season, preset=preset, min_games=min_games
+    )
 
 st.set_page_config(page_title="Compare | Fantasy Tracker", layout="wide")
 
 controls = render_sidebar()
 st.title("Compare Players")
+st.caption(
+    "QB, RB, WR, and TE can be compared to each other. "
+    "Compare kickers to kickers and team defenses (DST) to other defenses only."
+)
 
 if not db_exists():
     st.info("Ingest at least one completed season to use this page.")
@@ -34,22 +73,86 @@ with col2:
 if not player_a or not player_b:
     st.stop()
 
-mode = st.radio("Compare mode", ["All-time", "Single season"], horizontal=True)
-season = controls["season"] if mode == "Single season" else None
+if "compare_mode" not in st.session_state:
+    st.session_state.compare_mode = "All-time"
 
-if mode == "Single season" and season is None:
+st.radio(
+    "Compare mode",
+    ["All-time", "Single season"],
+    horizontal=True,
+    key="compare_mode",
+)
+mode = str(st.session_state.compare_mode)
+compare_season = (
+    int(controls["season"]) if mode == "Single season" else None
+)
+
+if mode == "Single season" and compare_season is None:
     st.warning("Select a season in the sidebar.")
     st.stop()
 
+if mode == "Single season":
+    st.caption(
+        f"Comparing the **{compare_season}** season (sidebar **Season** control)."
+    )
+else:
+    st.caption(
+        "All-time mode uses every ingested season. The sidebar **Season** year is ignored."
+    )
+
 preset = controls["preset"]
-df_a, df_b = compare_players(conn, player_a, player_b, preset, season=season)
+df_a, df_b = compare_entities(
+    conn, player_a, player_b, preset, season=compare_season
+)
 
 if df_a.empty or df_b.empty:
-    st.warning("Insufficient data for one or both players.")
+    label_a = entity_display_label(conn, player_a)
+    label_b = entity_display_label(conn, player_b)
+    if mode == "Single season":
+        if df_a.empty:
+            st.warning(
+                f"**{label_a}** has no stats for **{compare_season}** in the database."
+            )
+            avail = entity_seasons_available(conn, player_a, preset)
+            if avail:
+                st.caption(
+                    f"{label_a} seasons available: {avail[0]}–{avail[-1]} "
+                    f"({len(avail)} years ingested)."
+                )
+        if df_b.empty:
+            st.warning(
+                f"**{label_b}** has no stats for **{compare_season}** in the database."
+            )
+            avail = entity_seasons_available(conn, player_b, preset)
+            if avail:
+                st.caption(
+                    f"{label_b} seasons available: {avail[0]}–{avail[-1]} "
+                    f"({len(avail)} years ingested)."
+                )
+        st.info(
+            "Single-season compare needs a regular-season row for **both** sides that year. "
+            "Injured or inactive players often have no row (e.g. Andrew Luck did not play in 2017)."
+        )
+    else:
+        st.warning("Insufficient data for one or both selections.")
     st.stop()
 
-name_a = df_a["player_name"].iloc[0]
-name_b = df_b["player_name"].iloc[0]
+name_a = entity_display_label(conn, player_a)
+name_b = entity_display_label(conn, player_b)
+
+cohort_a = compare_cohort(player_a, df_a["position"].iloc[-1])
+cohort_b = compare_cohort(player_b, df_b["position"].iloc[-1])
+if not compare_cohorts_compatible(cohort_a, cohort_b):
+    st.error(compare_incompatible_message(cohort_a, cohort_b))
+    st.stop()
+
+
+def _compare_stat_positions(pos_a: str, pos_b: str) -> list[str]:
+    if cohort_a == COMPARE_GROUP_DST:
+        return [DST_POSITION]
+    if cohort_a == COMPARE_GROUP_KICKER:
+        return ["K"]
+    return [_profile_position_key(pos_a), _profile_position_key(pos_b)]
 
 
 if mode == "All-time":
@@ -63,22 +166,34 @@ if mode == "All-time":
     merged = df_a.merge(df_b, on="season", suffixes=("_a", "_b"), how="outer").sort_values("season")
     if not merged.empty:
         merged["diff"] = merged["fantasy_points_a"].fillna(0) - merged["fantasy_points_b"].fillna(0)
+        merge_cols = ["season", "fantasy_points_a", "fantasy_points_b", "diff"]
+        if cohort_a != COMPARE_GROUP_DST:
+            merge_cols.extend(["teams_a", "teams_b"])
         st.dataframe(
-            merged[
-                ["season", "fantasy_points_a", "fantasy_points_b", "diff", "teams_a", "teams_b"]
-            ].round(2),
+            rename_compare_career_merge(
+                merged[merge_cols].round(2),
+                name_a,
+                name_b,
+                include_teams=cohort_a != COMPARE_GROUP_DST,
+            ),
             use_container_width=True,
             hide_index=True,
         )
 
-    pos_a = normalize_fantasy_position(df_a["position"].iloc[-1])
-    pos_b = normalize_fantasy_position(df_b["position"].iloc[-1])
-    st.markdown("### Career stat totals")
-    totals_a = df_a[STAT_COLUMNS].sum()
-    totals_b = df_b[STAT_COLUMNS].sum()
-    stat_df = build_stat_compare_frame(totals_a, totals_b, name_a, name_b, [pos_a, pos_b])
+    pos_a = df_a["position"].iloc[-1]
+    pos_b = df_b["position"].iloc[-1]
+    st.markdown(section_h3("Career stat totals"))
+    stat_positions = _compare_stat_positions(pos_a, pos_b)
+    stat_cols = list(dict.fromkeys(display_stats_for_positions(stat_positions)))
+    totals_a = df_a[[c for c in stat_cols if c in df_a.columns]].sum(numeric_only=True)
+    totals_b = df_b[[c for c in stat_cols if c in df_b.columns]].sum(numeric_only=True)
+    stat_df = build_stat_compare_frame(totals_a, totals_b, name_a, name_b, stat_positions)
     if not stat_df.empty:
-        st.dataframe(stat_df.round(2), use_container_width=True, hide_index=True)
+        st.dataframe(
+            rename_stats_for_display(stat_df.round(2)),
+            use_container_width=True,
+            hide_index=True,
+        )
 
 else:
     row_a = df_a.iloc[0]
@@ -89,10 +204,11 @@ else:
     m3.metric("Difference", f"{row_a['fantasy_points'] - row_b['fantasy_points']:+.1f}")
 
     thresholds = load_thresholds()
-    peer_df = season_stats_for_peer_analysis(conn, season=season, preset=preset, min_games=min_games)
-    peer_df = add_volume_flags(peer_df, min_games=min_games)
-
     for label, row in [(name_a, row_a), (name_b, row_b)]:
+        peer_df = _peer_df_for_season(
+            conn, compare_season, preset, min_games, row["position"]
+        )
+        peer_df = add_volume_flags(peer_df, min_games=min_games)
         z = peer_z_score(
             float(row["fantasy_points"]),
             peer_df,
@@ -103,9 +219,17 @@ else:
             f"{label} peer Z (season): {z:.2f}" if z is not None else f"{label}: peer Z N/A"
         )
 
-    st.markdown("### Season stats")
+    st.markdown(section_h3("Season stats"))
     stat_df = build_stat_compare_frame(
-        row_a, row_b, name_a, name_b, [row_a["position"], row_b["position"]]
+        row_a,
+        row_b,
+        name_a,
+        name_b,
+        _compare_stat_positions(row_a["position"], row_b["position"]),
     )
     if not stat_df.empty:
-        st.dataframe(stat_df.round(2), use_container_width=True, hide_index=True)
+        st.dataframe(
+            rename_stats_for_display(stat_df.round(2)),
+            use_container_width=True,
+            hide_index=True,
+        )

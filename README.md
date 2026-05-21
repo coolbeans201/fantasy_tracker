@@ -6,17 +6,23 @@ Inspired by [NFL Perry](https://www.nflperry.com/) for data use cases, focused o
 
 ## Features
 
-- **Scoring:** Standard, Half-PPR, Full PPR
-- **Season Leaders:** Season, position (HB/FB → RB), team, min games (default 8)
-- **Player Profile:** Career stats, FP-by-season chart, best week, peer/career Z
-- **Compare:** All-time or single-season; search by name (2+ characters, includes retired players)
+- **Scoring:** Standard, Half-PPR, Full PPR for offense; **ESPN default** for kickers and team D/ST
+- **Season Leaders:** QB/RB/WR/TE/K plus **DST** (team defense units, e.g. Broncos), min games (default 8)
+- **Player Profile:** Players (QB/RB/WR/TE/K) and team **D/ST** — career stats, FP chart, best week, peer/career Z
+- **Compare:** All-time or single-season; search by name or team code (2+ characters)
 - **Variance:** Z-score vs same-season peers; optional all-time position baseline
 
 ## Data
 
 - [nflverse](https://github.com/nflverse) via [`nflreadpy`](https://nflreadpy.nflverse.com/)
 - **1999+** regular seasons only; ingest ad-hoc when a season completes
-- Skill positions only: **QB, RB, WR, TE** (see [`src/positions.py`](src/positions.py))
+- Players: **QB, RB, WR, TE, K**; team **D/ST** from nflverse team stats (see [`src/positions.py`](src/positions.py))
+
+After upgrading to kickers / D/ST support, re-ingest seasons so new columns populate:
+
+```bash
+.\.venv\Scripts\python.exe scripts\ingest_season.py --season 2023
+```
 
 ## Quick start
 
@@ -48,8 +54,11 @@ Database: `data/fantasy_tracker.duckdb` (gitignored). Use the **sidebar** for sc
 | How does a player’s 2021 compare to their own career (strong/weak year for them)? | **Player Profile** — search player, check **Career Z** on the season row |
 | How elite was a season vs other QBs/WRs that year? | **Player Profile** or **Season Leaders** — **Peer Z (season)**; enable **peer Z (all-time era)** in sidebar for a historical baseline |
 | Compare Travis Kelce vs Mark Andrews in 2023 | **Compare** — search each name (2+ letters), mode **Single season**, pick 2023 in sidebar |
+| Top ESPN-scoring defenses in 2022 | **Season Leaders** — position **DST**, min games 8 |
+| Best kickers by field goals in 2023 | **Season Leaders** — position **K** (ESPN kicker scoring) |
 | Compare two players’ full careers (totals and season-by-season) | **Compare** — mode **All-time** |
 | See every stat we store for a player’s career or a single season | **Player Profile** — career table; expand **All career stats**; pick a season in sidebar for weekly/team splits |
+| Broncos D/ST career and weekly scoring | **Player Profile** — search `DEN` or `DEN Defense` |
 | Tune who counts for peer Z (targets, carries, etc.) | `scripts/volume_report.py --season 2023` (see [`src/analytics/thresholds.yaml`](src/analytics/thresholds.yaml)) |
 
 ## Commands
@@ -71,7 +80,9 @@ Resume a failed bulk ingest from a year:
 
 | File | What it controls |
 |------|------------------|
-| [`src/scoring/presets.yaml`](src/scoring/presets.yaml) | Fantasy scoring weights |
+| [`src/scoring/presets.yaml`](src/scoring/presets.yaml) | Offensive scoring (Standard / Half-PPR / Full PPR) |
+| [`src/scoring/kicker_presets.yaml`](src/scoring/kicker_presets.yaml) | ESPN kicker scoring |
+| [`src/scoring/dst_presets.yaml`](src/scoring/dst_presets.yaml) | ESPN D/ST scoring |
 | [`config/settings.yaml`](config/settings.yaml) | Default min games (8) |
 | [`src/analytics/thresholds.yaml`](src/analytics/thresholds.yaml) | Volume gates for peer Z (WR/TE use targets) |
 

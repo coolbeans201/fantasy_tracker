@@ -72,6 +72,8 @@ DISPLAY_COLUMN_LABELS: dict[str, str] = {
     "career_z": "Career Z",
     "best_week": "Best Week",
     "best_week_fp": "Best Week FP",
+    "stat": "Stat",
+    "diff": "Difference",
 }
 
 STAT_LABELS: dict[str, str] = {
@@ -91,6 +93,25 @@ STAT_LABELS: dict[str, str] = {
     "receiving_tds": "Receiving TDs",
     "receiving_fumbles_lost": "Receiving Fumbles Lost",
     "fumbles_lost": "Fumbles Lost",
+    "pat_made": "PAT Made",
+    "pat_missed": "PAT Missed",
+    "fg_missed": "FG Missed",
+    "fg_made_0_19": "FG 0-19",
+    "fg_made_20_29": "FG 20-29",
+    "fg_made_30_39": "FG 30-39",
+    "fg_made_40_49": "FG 40-49",
+    "fg_made_50_59": "FG 50-59",
+    "fg_made_60_": "FG 60+",
+    "sacks": "Sacks",
+    "def_interceptions": "Def INT",
+    "fumble_recoveries": "Fumble Recoveries",
+    "safeties": "Safeties",
+    "blocked_kicks": "Blocked Kicks",
+    "def_touchdowns": "Def TD",
+    "return_touchdowns": "Return TD",
+    "points_allowed": "Points Allowed",
+    "fantasy_points_kicker": "Fantasy Points (K)",
+    "fantasy_points_dst": "Fantasy Points (DST)",
 }
 
 # Stored separately in DB; shown as one "Fumbles Lost" column in the UI
@@ -143,6 +164,27 @@ POSITION_EMPHASIS: dict[str, list[str]] = {
         "rushing_tds",
         "fumbles_lost",
     ],
+    "K": [
+        "fg_made_0_19",
+        "fg_made_20_29",
+        "fg_made_30_39",
+        "fg_made_40_49",
+        "fg_made_50_59",
+        "fg_made_60_",
+        "fg_missed",
+        "pat_made",
+        "pat_missed",
+    ],
+    "DST": [
+        "sacks",
+        "def_interceptions",
+        "fumble_recoveries",
+        "safeties",
+        "blocked_kicks",
+        "def_touchdowns",
+        "return_touchdowns",
+        "points_allowed",
+    ],
 }
 
 FANTASY_POINT_COLUMNS = [
@@ -183,8 +225,15 @@ def resolve_player_name(source: "pd.DataFrame") -> "pd.Series":
 
 
 def sql_stat_select() -> str:
-    """Comma-separated stat columns for SELECT clauses."""
+    """Comma-separated offensive stat columns for SELECT clauses."""
     return ", ".join(STAT_COLUMNS)
+
+
+def sql_player_stat_select() -> str:
+    """Offensive + kicker stat columns for player season/weekly queries."""
+    from src.kicker_columns import KICKER_STAT_COLUMNS
+
+    return ", ".join(STAT_COLUMNS + KICKER_STAT_COLUMNS)
 
 
 def column_display_label(col: str) -> str:
@@ -193,7 +242,9 @@ def column_display_label(col: str) -> str:
         return DISPLAY_COLUMN_LABELS[col]
     if col in STAT_LABELS:
         return STAT_LABELS[col]
-    return col.replace("_", " ").title()
+    from src.ui_text import title_case_ui
+
+    return title_case_ui(col.replace("_", " "))
 
 
 def stat_display_label(col: str) -> str:
@@ -234,25 +285,40 @@ def _collapse_display_stat_columns(cols: list[str]) -> list[str]:
 
 def display_stats_for_positions(positions: list[str] | None) -> list[str]:
     """
-    Stat columns to show in UI: union of position-emphasis sets, then remaining stats.
-    Always returns every stored stat column (no filtering out cross-position stats).
+    Stat columns for UI tables.
+    Kicker stats only when K alone is selected; DST stats only for DST alone;
+    otherwise offensive stats only (no kicker/DST columns).
     """
-    if not positions:
-        ordered = list(STAT_COLUMNS)
-    else:
-        from src.positions import normalize_fantasy_position
+    from src.kicker_columns import KICKER_STAT_COLUMNS
+    from src.positions import (
+        DST_POSITION,
+        is_dst_only_selection,
+        is_kicker_only_selection,
+        normalize_fantasy_position,
+        normalize_leader_selection,
+    )
+    from src.team_dst_columns import DST_STAT_COLUMNS
 
-        seen: list[str] = []
-        for pos in positions:
-            key = normalize_fantasy_position(pos) or pos
-            for col in POSITION_EMPHASIS.get(key, STAT_COLUMNS):
-                if col not in seen:
-                    seen.append(col)
-        for col in STAT_COLUMNS:
+    selected = normalize_leader_selection(positions)
+
+    if is_dst_only_selection(selected):
+        return list(DST_STAT_COLUMNS)
+
+    if is_kicker_only_selection(selected):
+        return list(KICKER_STAT_COLUMNS)
+
+    seen: list[str] = []
+    for pos in selected:
+        key = normalize_fantasy_position(pos) or str(pos).strip().upper()
+        if key in (DST_POSITION, "K"):
+            continue
+        for col in POSITION_EMPHASIS.get(key, STAT_COLUMNS):
             if col not in seen:
                 seen.append(col)
-        ordered = seen
-    return _collapse_display_stat_columns(ordered)
+    for col in STAT_COLUMNS:
+        if col not in seen:
+            seen.append(col)
+    return _collapse_display_stat_columns(seen)
 
 
 def build_stat_compare_frame(
@@ -288,6 +354,26 @@ def collapse_fumble_columns_df(df):
     out["fumbles_lost"] = out.apply(combined_fumbles_lost, axis=1)
     drop_cols = [c for c in _HIDDEN_DISPLAY_STAT_COLUMNS if c in out.columns]
     return out.drop(columns=drop_cols, errors="ignore")
+
+
+def rename_compare_career_merge(
+    df: "pd.DataFrame",
+    name_a: str,
+    name_b: str,
+    *,
+    include_teams: bool = True,
+) -> "pd.DataFrame":
+    """Readable title-case columns for Compare all-time season merge table."""
+    labels = {
+        "season": "Season",
+        "fantasy_points_a": f"Fantasy Points ({name_a})",
+        "fantasy_points_b": f"Fantasy Points ({name_b})",
+        "diff": "Difference",
+    }
+    if include_teams:
+        labels["teams_a"] = f"Teams ({name_a})"
+        labels["teams_b"] = f"Teams ({name_b})"
+    return df.rename(columns={k: v for k, v in labels.items() if k in df.columns})
 
 
 def rename_stats_for_display(df, columns: list[str] | None = None):
