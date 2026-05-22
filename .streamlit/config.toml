@@ -6,3 +6,5 @@ textColor = "#fafafa"
 
 [server]
 headless = true
+# No "File change" dev banner; refresh the browser after code edits.
+fileWatcherType = "none"

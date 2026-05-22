@@ -1,12 +1,14 @@
 """Season Leaders page."""
 
-import numpy as np
 import streamlit as st
 
 from app.components import get_db, render_sidebar
-from src.analytics.variance import add_volume_flags, load_thresholds
+from app.leader_navigation import render_leaders_table
+from src.analytics.metrics import add_fp_per_game
+from src.analytics.peer_z import enrich_leaders_dataframe
 from src.db.connection import db_exists
-from src.db.queries import season_leaders, season_stats_for_peer_analysis, teams_for_season
+from src.db.queries import season_leaders, teams_for_season
+from src.entities import make_dst_entity_id
 from src.positions import (
     OFFENSE_POSITIONS,
     coerce_leader_selection,
@@ -27,7 +29,6 @@ if not db_exists() or controls["season"] is None:
 
 
 def _coerce_and_store() -> list[str]:
-    """Update widget state before render / in on_change only (not after widget)."""
     prev = st.session_state.get("leaders_positions_prev", list(OFFENSE_POSITIONS))
     raw = st.session_state.get("leaders_positions", list(OFFENSE_POSITIONS))
     coerced = coerce_leader_selection(raw, prev)
@@ -49,7 +50,6 @@ conn = get_db()
 season = controls["season"]
 preset = controls["preset"]
 min_games = controls["min_games"]
-
 positions = _coerce_and_store()
 
 st.multiselect(
@@ -96,47 +96,37 @@ if df.empty:
     )
     st.stop()
 
-df["fantasy_points"] = df["fantasy_points"]
+df = enrich_leaders_dataframe(
+    conn, df, season, preset, positions, min_games, era_z=controls["era_z"]
+)
+df = add_fp_per_game(df)
 
-if not dst_view:
-    df = add_volume_flags(df, min_games=min_games)
+if dst_view:
+    df["entity_id"] = df["team"].astype(str).map(make_dst_entity_id)
+elif "player_id" in df.columns:
+    df["entity_id"] = df["player_id"]
 
-    thresholds = load_thresholds()
-    min_peers = thresholds.get("min_qualified_peers", 10)
-    df["peer_z_season"] = np.nan
-
-    qualified = df[df["peer_qualified"]]
-    for pos, group in qualified.groupby("position"):
-        if len(group) < min_peers:
-            continue
-        mean, std = group["fantasy_points"].mean(), group["fantasy_points"].std()
-        if std and std > 0:
-            df.loc[group.index, "peer_z_season"] = (group["fantasy_points"] - mean) / std
-
-if controls["era_z"] and not dst_view:
-    all_seasons = season_stats_for_peer_analysis(conn, season=None, preset=preset, min_games=min_games)
-    if is_kicker_only_selection(positions):
-        all_seasons = all_seasons[all_seasons["position"] == "K"]
-    elif not is_dst_only_selection(positions):
-        all_seasons = all_seasons[all_seasons["position"].isin(OFFENSE_POSITIONS)]
-    all_seasons = add_volume_flags(all_seasons, min_games=min_games)
-    era_stats = (
-        all_seasons[all_seasons["peer_qualified"]]
-        .groupby("position")["fantasy_points"]
-        .agg(era_mean="mean", era_std="std")
-        .reset_index()
-    )
-    df = df.merge(era_stats, on="position", how="left")
-    df["peer_z_era"] = np.where(
-        (df["era_std"] > 0) & df["peer_qualified"],
-        (df["fantasy_points"] - df["era_mean"]) / df["era_std"],
-        np.nan,
-    )
-    df = df.drop(columns=["era_mean", "era_std"], errors="ignore")
+sort_options = ["FP per game", "Fantasy points", "Peer Z (season)"]
+default_sort = 1 if dst_view else 0
+sort_by = st.selectbox("Sort by", sort_options, index=default_sort)
+sort_col = {
+    "FP per game": "fp_per_game",
+    "Fantasy points": "fantasy_points",
+    "Peer Z (season)": "peer_z_season",
+}[sort_by]
+if sort_col in df.columns:
+    df = df.sort_values(sort_col, ascending=False, na_position="last")
 
 stat_cols = [c for c in display_stats_for_positions(positions) if c in df.columns]
 if dst_view:
-    display_cols = ["player_name", "games", "fantasy_points", *stat_cols]
+    display_cols = [
+        "player_name",
+        "games",
+        "fantasy_points",
+        "fp_per_game",
+        "peer_z_season",
+        *stat_cols,
+    ]
     column_labels = {"player_name": "Team"}
 else:
     team_col = "team" if "team" in df.columns else "teams"
@@ -146,12 +136,14 @@ else:
         team_col,
         "games",
         "fantasy_points",
+        "fp_per_game",
         "peer_z_season",
     ]
     if "peer_z_era" in df.columns:
         display_cols.append("peer_z_era")
     display_cols += stat_cols
     column_labels = {}
+
 display_cols = [c for c in display_cols if c in df.columns]
 
 
@@ -165,23 +157,42 @@ def _rename_leader_table(frame, extra_labels: dict[str, str]):
 
 
 if dst_view:
-    stat_hint = "One row per NFL team. ESPN D/ST scoring and defense stats only."
-elif is_kicker_only_selection(positions):
-    stat_hint = "Showing kicker stats only."
-else:
     stat_hint = (
-        "Stat columns match selected offensive positions; kicker and DST stats are hidden."
+        "One row per NFL team. ESPN D/ST scoring. Peer Z compares all teams that season "
+        "(min games filter does not apply)."
     )
+elif is_kicker_only_selection(positions):
+    stat_hint = "Kicker stats with ESPN scoring. Peer Z uses kicker volume gates."
+else:
+    stat_hint = "Offensive stats use the sidebar scoring preset. Default sort is FP per game."
 st.caption(stat_hint)
-shown = _rename_leader_table(df[display_cols].round(2), column_labels)
-st.dataframe(shown, use_container_width=True, hide_index=True)
+table_df = df.reset_index(drop=True)
+shown = _rename_leader_table(table_df[display_cols], column_labels)
+if "entity_id" in table_df.columns:
+    name_col = "Team" if dst_view else "Player"
+    render_leaders_table(
+        shown,
+        entity_ids=table_df["entity_id"],
+        display_names=table_df["player_name"],
+        season=season,
+        name_column=name_col,
+    )
+else:
+    st.dataframe(shown, use_container_width=True, hide_index=True)
 
 if not dst_view:
     with st.expander(title_case_ui("All stats")):
         team_col = "team" if "team" in df.columns else "teams"
-        extra = ["player_name", "position", team_col, "games", "fantasy_points"] + stat_cols
+        extra = [
+            "player_name",
+            "position",
+            team_col,
+            "games",
+            "fantasy_points",
+            "fp_per_game",
+        ] + stat_cols
         st.dataframe(
-            rename_stats_for_display(df[extra].round(2)),
+            rename_stats_for_display(df[extra]),
             use_container_width=True,
             hide_index=True,
         )

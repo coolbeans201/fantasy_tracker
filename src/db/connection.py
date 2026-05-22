@@ -108,6 +108,13 @@ def _migrate_stat_columns(conn: duckdb.DuckDBPyConnection) -> None:
         )
     except duckdb.Error:
         pass
+    for table in ("weekly_stats", "team_defense_weekly"):
+        try:
+            conn.execute(
+                f"ALTER TABLE {table} ADD COLUMN IF NOT EXISTS opponent VARCHAR"
+            )
+        except duckdb.Error:
+            pass
 
 
 
@@ -170,5 +177,56 @@ def list_ingested_seasons(conn: duckdb.DuckDBPyConnection | None = None) -> list
         conn.close()
 
     return [int(r[0]) for r in rows]
+
+
+def get_ingest_summary(conn: duckdb.DuckDBPyConnection | None = None) -> dict:
+    """Seasons ingested, row counts, and latest ingest timestamp."""
+    empty = {
+        "seasons": [],
+        "season_count": 0,
+        "latest_season": None,
+        "latest_ingested_at": None,
+        "total_rows": 0,
+    }
+    if not db_exists():
+        return empty
+
+    close = False
+    if conn is None:
+        conn = get_connection(read_only=True)
+        close = True
+
+    try:
+        manifest = conn.execute(
+            """
+            SELECT season, ingested_at, row_count
+            FROM ingest_manifest
+            ORDER BY season DESC
+            """
+        ).df()
+    except duckdb.Error:
+        manifest = None
+
+    if close:
+        conn.close()
+
+    if manifest is None or manifest.empty:
+        seasons = list_ingested_seasons()
+        return {
+            **empty,
+            "seasons": seasons,
+            "season_count": len(seasons),
+            "latest_season": seasons[0] if seasons else None,
+        }
+
+    manifest.columns = [str(c).lower() for c in manifest.columns]
+    seasons = [int(s) for s in manifest["season"].tolist()]
+    return {
+        "seasons": seasons,
+        "season_count": len(seasons),
+        "latest_season": seasons[0] if seasons else None,
+        "latest_ingested_at": manifest["ingested_at"].max(),
+        "total_rows": int(manifest["row_count"].fillna(0).sum()),
+    }
 
 

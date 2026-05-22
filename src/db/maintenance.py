@@ -3,6 +3,7 @@
 from __future__ import annotations
 
 import duckdb
+import pandas as pd
 
 
 def _player_id_column(players_df) -> str | None:
@@ -161,7 +162,111 @@ def recompute_games_played(conn: duckdb.DuckDBPyConnection) -> None:
     )
 
 
+def _opponent_lookup_from_nflverse(raw: pd.DataFrame, *, team_level: bool) -> pd.DataFrame:
+    """REG rows with join keys + opponent abbreviation."""
+    if raw.empty or "opponent_team" not in raw.columns:
+        return pd.DataFrame()
+
+    frame = raw.copy()
+    if hasattr(frame, "to_pandas"):
+        frame = frame.to_pandas()
+
+    if "season_type" in frame.columns:
+        frame = frame[frame["season_type"] == "REG"]
+
+    team_col = "team" if "team" in frame.columns else "recent_team"
+    if team_col not in frame.columns:
+        return pd.DataFrame()
+
+    keys = ["season", "week", "season_type", team_col, "opponent_team"]
+    if not team_level:
+        if "player_id" not in frame.columns:
+            return pd.DataFrame()
+        keys = ["player_id", *keys]
+
+    subset = frame[keys].drop_duplicates()
+    subset = subset.rename(columns={team_col: "team", "opponent_team": "opponent"})
+    subset["team"] = subset["team"].astype(str).str.strip()
+    subset["opponent"] = subset["opponent"].astype(str).str.strip()
+    subset = subset[subset["opponent"].str.len() > 0]
+    return subset
+
+
+def backfill_weekly_opponents(conn: duckdb.DuckDBPyConnection) -> None:
+    """Fill opponent from nflverse for rows ingested before the column existed."""
+    player_missing = conn.execute(
+        """
+        SELECT COUNT(*) FROM weekly_stats
+        WHERE season_type = 'REG' AND opponent IS NULL
+        """
+    ).fetchone()[0]
+    dst_missing = conn.execute(
+        """
+        SELECT COUNT(*) FROM team_defense_weekly
+        WHERE season_type = 'REG' AND opponent IS NULL
+        """
+    ).fetchone()[0]
+    if player_missing == 0 and dst_missing == 0:
+        return
+
+    import nflreadpy as nfl
+
+    seasons = [
+        int(row[0])
+        for row in conn.execute(
+            """
+            SELECT DISTINCT season FROM weekly_stats
+            UNION
+            SELECT DISTINCT season FROM team_defense_weekly
+            ORDER BY season
+            """
+        ).fetchall()
+    ]
+    if not seasons:
+        return
+
+    if player_missing:
+        raw_players = nfl.load_player_stats(seasons)
+        lookup = _opponent_lookup_from_nflverse(raw_players, team_level=False)
+        if not lookup.empty:
+            conn.register("_weekly_opp", lookup)
+            conn.execute(
+                """
+                UPDATE weekly_stats AS w
+                SET opponent = o.opponent
+                FROM _weekly_opp AS o
+                WHERE w.player_id = o.player_id
+                  AND w.season = o.season
+                  AND w.week = o.week
+                  AND w.season_type = o.season_type
+                  AND w.team = o.team
+                  AND w.opponent IS NULL
+                """
+            )
+            conn.unregister("_weekly_opp")
+
+    if dst_missing:
+        raw_teams = nfl.load_team_stats(seasons)
+        lookup = _opponent_lookup_from_nflverse(raw_teams, team_level=True)
+        if not lookup.empty:
+            conn.register("_dst_weekly_opp", lookup)
+            conn.execute(
+                """
+                UPDATE team_defense_weekly AS w
+                SET opponent = o.opponent
+                FROM _dst_weekly_opp AS o
+                WHERE w.team = o.team
+                  AND w.season = o.season
+                  AND w.week = o.week
+                  AND w.season_type = o.season_type
+                  AND w.opponent IS NULL
+                """
+            )
+            conn.unregister("_dst_weekly_opp")
+
+
 __all__ = [
+    "backfill_weekly_opponents",
     "players_table_needs_rebuild",
     "rebuild_players_table",
     "recompute_games_played",

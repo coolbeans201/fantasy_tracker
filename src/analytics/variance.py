@@ -8,7 +8,7 @@ import numpy as np
 import pandas as pd
 import yaml
 
-from src.positions import positions_for_peer_grouping
+from src.positions import is_dst_position, positions_for_peer_grouping
 from src.scoring.calc import fp_column_for_preset, resolve_preset
 from src.settings import get_min_games_default
 
@@ -44,6 +44,9 @@ def qualifies_for_peer_z(
     thresholds: dict | None = None,
     min_games: int | None = None,
 ) -> bool:
+    if is_dst_position(row.get("position")):
+        return bool(row.get("games", 0) > 0)
+
     thresholds = thresholds or load_thresholds()
     games_min = get_min_games(min_games)
     if row.get("games", 0) < games_min:
@@ -130,54 +133,24 @@ def enrich_season_with_z_scores(
     preset: str,
     include_era: bool = False,
     min_games: int | None = None,
+    positions: list[str] | None = None,
 ) -> pd.DataFrame:
-    """Build season leaderboard dataframe with Z columns."""
+    """Build season leaderboard dataframe with Z columns (delegates to peer_z)."""
+    from src.analytics.peer_z import enrich_leaders_dataframe
     from src.db.queries import season_leaders
+    from src.positions import OFFENSE_POSITIONS
 
-    preset_key = resolve_preset(preset)
-    fp_col = fp_column_for_preset(preset_key)
-
-    df = season_leaders(conn, season, preset, min_games=get_min_games(min_games))
+    mg = get_min_games(min_games)
+    pos = positions or list(OFFENSE_POSITIONS)
+    df = season_leaders(conn, season, preset, positions=pos, min_games=mg)
     if df.empty:
         return df
-
-    df = df.rename(columns={"fantasy_points": fp_col})
-    df["fantasy_points"] = df[fp_col]
-    df = add_volume_flags(df, min_games=min_games)
-
-    qualified = df[df["peer_qualified"]].copy()
-    min_peers = load_thresholds().get("min_qualified_peers", 10)
-
-    df["peer_z_season"] = np.nan
-    for pos, group in qualified.groupby("position"):
-        if len(group) < min_peers:
-            continue
-        mean = group[fp_col].mean()
-        std = group[fp_col].std()
-        if std and std > 0:
-            z = (group[fp_col] - mean) / std
-            df.loc[group.index, "peer_z_season"] = z
-
-    if include_era:
-        from src.db.queries import season_stats_for_peer_analysis
-
-        all_q = season_stats_for_peer_analysis(conn, season=None, preset=preset, min_games=min_games)
-        all_q = add_volume_flags(all_q, min_games=min_games)
-        era_stats = (
-            all_q[all_q["peer_qualified"]]
-            .groupby("position")["fantasy_points"]
-            .agg(era_mean="mean", era_std="std")
-            .reset_index()
-        )
-        df = df.merge(era_stats, on="position", how="left")
-        df["peer_z_era"] = np.where(
-            (df["era_std"] > 0) & df["peer_qualified"],
-            (df["fantasy_points"] - df["era_mean"]) / df["era_std"],
-            np.nan,
-        )
-        df = df.drop(columns=["era_mean", "era_std"], errors="ignore")
-
-    return df.sort_values(fp_col, ascending=False)
+    df = enrich_leaders_dataframe(
+        conn, df, season, preset, pos, mg, era_z=include_era
+    )
+    preset_key = resolve_preset(preset)
+    fp_col = fp_column_for_preset(preset_key)
+    return df.sort_values("fantasy_points" if "fantasy_points" in df.columns else fp_col, ascending=False)
 
 
 __all__ = [

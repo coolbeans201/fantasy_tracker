@@ -53,8 +53,8 @@ def dst_season_leaders(
     team: str | None = None,
     min_games: int | None = None,
 ) -> pd.DataFrame:
-    if min_games is None:
-        min_games = get_min_games_default()
+    """DST leaderboard — min_games is ignored (every team plays each week)."""
+    del min_games  # noqa: ARG001 — API parity with player leaders
 
     stats = sql_dst_stat_select()
     query = f"""
@@ -68,9 +68,8 @@ def dst_season_leaders(
             {stats}
         FROM team_defense_season
         WHERE season = ?
-          AND games >= ?
     """
-    params: list = [season, min_games]
+    params: list = [season]
     if team:
         query += " AND team = ?"
         params.append(team)
@@ -192,6 +191,7 @@ def dst_team_weekly(
         SELECT
             week,
             team,
+            opponent,
             '{DST_POSITION}' AS position,
             games,
             {DST_FP_COLUMN} AS fantasy_points,
@@ -209,17 +209,17 @@ def dst_season_stats_for_peer_analysis(
     season: int,
     min_games: int | None = None,
 ) -> pd.DataFrame:
-    if min_games is None:
-        min_games = get_min_games_default()
+    """All team defenses that season (no min-games filter)."""
+    del min_games  # noqa: ARG001
     return _fetch_df(
         conn,
         f"""
         SELECT team AS player_id, season, '{DST_POSITION}' AS position, games,
                {DST_FP_COLUMN} AS fantasy_points
         FROM team_defense_season
-        WHERE season = ? AND games >= ?
+        WHERE season = ?
         """,
-        [season, min_games],
+        [season],
     )
 
 
@@ -244,6 +244,40 @@ def entity_weekly(
     return player_weekly(conn, entity_id, season, preset)
 
 
+def entity_all_weekly(
+    conn: duckdb.DuckDBPyConnection,
+    entity_id: str,
+    preset: str,
+) -> pd.DataFrame:
+    """All regular-season weeks for an entity (for preset-specific best week)."""
+    if is_dst_entity(entity_id):
+        team = dst_team_from_entity(entity_id)
+        stats = sql_dst_stat_select()
+        return _fetch_df(
+            conn,
+            f"""
+            SELECT season, week, team, opponent, '{DST_POSITION}' AS position, games,
+                   {DST_FP_COLUMN} AS fantasy_points, {stats}
+            FROM team_defense_weekly
+            WHERE team = ? AND season_type = 'REG'
+            ORDER BY season, week
+            """,
+            [team],
+        )
+    fp_expr = fantasy_points_sql_expr(preset)
+    stats = sql_player_stat_select()
+    return _fetch_df(
+        conn,
+        f"""
+        SELECT season, week, team, opponent, position, games, {fp_expr} AS fantasy_points, {stats}
+        FROM weekly_stats
+        WHERE player_id = ? AND season_type = 'REG'
+        ORDER BY season, week
+        """,
+        [entity_id],
+    )
+
+
 def player_seasons(
     conn: duckdb.DuckDBPyConnection,
     player_id: str,
@@ -257,7 +291,7 @@ def player_seasons(
         SELECT
             player_name, season, position, teams, games,
             {fp_expr} AS fantasy_points,
-            best_week, best_week_fp,
+            best_week, best_week_fp, best_week_scoring,
             {stats}
         FROM season_stats
         WHERE player_id = ?
@@ -298,7 +332,7 @@ def player_weekly(
     return _fetch_df(
         conn,
         f"""
-        SELECT week, team, position, games, {fp_expr} AS fantasy_points, {stats}
+        SELECT week, team, opponent, position, games, {fp_expr} AS fantasy_points, {stats}
         FROM weekly_stats
         WHERE player_id = ? AND season = ? AND season_type = 'REG'
         ORDER BY week
@@ -359,6 +393,30 @@ def entity_seasons_available(
     if df.empty or "season" not in df.columns:
         return []
     return sorted(int(s) for s in df["season"].dropna().unique())
+
+
+def compare_shared_seasons(
+    conn: duckdb.DuckDBPyConnection,
+    entity_id_a: str,
+    entity_id_b: str,
+    preset: str,
+) -> list[int]:
+    """Season years where both entities have season-level data (newest first)."""
+    a = set(entity_seasons_available(conn, entity_id_a, preset))
+    b = set(entity_seasons_available(conn, entity_id_b, preset))
+    return sorted(a & b, reverse=True)
+
+
+def compare_union_seasons(
+    conn: duckdb.DuckDBPyConnection,
+    entity_id_a: str,
+    entity_id_b: str,
+    preset: str,
+) -> list[int]:
+    """Every season year either entity has data (newest first)."""
+    a = set(entity_seasons_available(conn, entity_id_a, preset))
+    b = set(entity_seasons_available(conn, entity_id_b, preset))
+    return sorted(a | b, reverse=True)
 
 
 def compare_entities(

@@ -2,6 +2,8 @@
 
 from __future__ import annotations
 
+import pandas as pd
+
 # All countable stats stored in DuckDB (summed weekly -> season)
 STAT_COLUMNS = [
     "passing_completions",
@@ -32,6 +34,8 @@ NFLVERSE_COL_MAP: dict[str, str] = {
     "season_type": "season_type",
     "recent_team": "team",
     "team": "team",
+    "opponent_team": "opponent",
+    "opponent": "opponent",
     "position": "position",
     "games": "games",
     "completions": "passing_completions",
@@ -62,11 +66,17 @@ DISPLAY_COLUMN_LABELS: dict[str, str] = {
     "player_name": "Player",
     "position": "Position",
     "team": "Team",
+    "opponent": "Opponent",
     "teams": "Teams",
     "season": "Season",
     "week": "Week",
     "games": "Games",
     "fantasy_points": "Fantasy Points",
+    "fp_per_game": "FP Per Game",
+    "weekly_std": "Weekly Std Dev",
+    "boom_rate": "Boom Rate",
+    "bust_rate": "Bust Rate",
+    "worst_week_fp": "Worst Week FP",
     "peer_z_season": "Peer Z (Season)",
     "peer_z_era": "Peer Z (Era)",
     "career_z": "Career Z",
@@ -373,7 +383,120 @@ def rename_compare_career_merge(
     if include_teams:
         labels["teams_a"] = f"Teams ({name_a})"
         labels["teams_b"] = f"Teams ({name_b})"
-    return df.rename(columns={k: v for k, v in labels.items() if k in df.columns})
+    out = df.rename(columns={k: v for k, v in labels.items() if k in df.columns})
+    return round_table_for_display(out)
+
+
+def _counting_stat_keys() -> frozenset[str]:
+    from src.kicker_columns import KICKER_STAT_COLUMNS
+    from src.team_dst_columns import DST_STAT_COLUMNS
+
+    return frozenset(STAT_COLUMNS) | frozenset(KICKER_STAT_COLUMNS) | frozenset(DST_STAT_COLUMNS)
+
+
+_META_INTEGER_KEYS = frozenset({"season", "week", "games", "best_week"})
+_META_INTEGER_LABELS = frozenset({"Season", "Week", "Games", "Best Week"})
+
+_DECIMAL_KEYS = frozenset(
+    {
+        "fantasy_points",
+        "fantasy_points_standard",
+        "fantasy_points_half_ppr",
+        "fantasy_points_full_ppr",
+        "fantasy_points_kicker",
+        "fantasy_points_dst",
+        "fp_per_game",
+        "peer_z_season",
+        "peer_z_era",
+        "career_z",
+        "best_week_fp",
+        "weekly_std",
+        "boom_rate",
+        "bust_rate",
+        "worst_week_fp",
+        "diff",
+    }
+)
+
+_DECIMAL_DISPLAY_LABELS = frozenset(
+    DISPLAY_COLUMN_LABELS[k] for k in _DECIMAL_KEYS if k in DISPLAY_COLUMN_LABELS
+)
+
+_COUNTING_DISPLAY_LABELS = frozenset(
+    STAT_LABELS[k] for k in _counting_stat_keys() if k in STAT_LABELS
+)
+
+
+def is_decimal_display_column(col: str) -> bool:
+    """Fantasy points, Z-scores, rates — show fractional digits."""
+    if col in _DECIMAL_KEYS or col in _DECIMAL_DISPLAY_LABELS:
+        return True
+    if col.startswith("Fantasy Points"):
+        return True
+    if "Peer Z" in col:
+        return True
+    return col in {
+        "FP Per Game",
+        "Difference",
+        "Career Z",
+        "Weekly Std Dev",
+        "Boom Rate",
+        "Bust Rate",
+        "Worst Week FP",
+        "Best Week FP",
+    }
+
+
+def is_counting_display_column(col: str) -> bool:
+    """Attempts, yards, TDs, etc. — whole numbers only."""
+    if is_decimal_display_column(col):
+        return False
+    if col in _META_INTEGER_KEYS or col in _META_INTEGER_LABELS:
+        return True
+    if col in _counting_stat_keys():
+        return True
+    if col in _COUNTING_DISPLAY_LABELS:
+        return True
+    return False
+
+
+def styler_format_for_columns(df: pd.DataFrame) -> dict[str, str]:
+    """Pandas Styler format strings keyed by column name."""
+    fmt: dict[str, str] = {}
+    for col in df.columns:
+        if not pd.api.types.is_numeric_dtype(df[col]):
+            continue
+        if is_decimal_display_column(col):
+            fmt[col] = "{:.2f}"
+        else:
+            fmt[col] = "{:.0f}"
+    return fmt
+
+
+def round_table_for_display(df: pd.DataFrame, decimals: int = 2) -> pd.DataFrame:
+    """
+    Format numeric columns for UI tables.
+
+    Counting stats (attempts, yards, TDs) and meta fields (season, games) are
+    integers. Fantasy points and Z-scores use ``decimals`` decimal places.
+    """
+    out = df.copy()
+    for col in out.columns:
+        if not pd.api.types.is_numeric_dtype(out[col]):
+            continue
+        numeric = pd.to_numeric(out[col], errors="coerce")
+        if is_decimal_display_column(col):
+            out[col] = numeric.round(decimals)
+        elif is_counting_display_column(col):
+            out[col] = numeric.round(0).astype("Int64")
+        else:
+            if numeric.dropna().empty or numeric.dropna().apply(
+                lambda x: float(x).is_integer()
+            ).all():
+                out[col] = numeric.round(0).astype("Int64")
+            else:
+                out[col] = numeric.round(decimals)
+    return out
 
 
 def rename_stats_for_display(df, columns: list[str] | None = None):
@@ -390,4 +513,4 @@ def rename_stats_for_display(df, columns: list[str] | None = None):
             if s in DISPLAY_COLUMN_LABELS or s in STAT_LABELS
             else s
         )
-    return out
+    return round_table_for_display(out)

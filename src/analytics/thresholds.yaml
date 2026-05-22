@@ -16,5 +16,7 @@ volume_gates:
     targets: 50             # opportunity-based (preferred over receptions)
   TE:
     targets: 40
+  K:
+    games: 8
   default:
     games: 8

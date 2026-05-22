@@ -3,13 +3,38 @@
 import numpy as np
 import streamlit as st
 
-from app.charts import season_fantasy_points_chart
-from app.components import fuzzy_entity_select, get_db, render_sidebar
-from src.analytics.peer_z import peer_z_score
+from app.charts import season_fantasy_points_chart, weekly_fantasy_points_chart
+from app.components import (
+    fuzzy_entity_select,
+    get_db,
+    query_param_entity,
+    query_param_season,
+    render_sidebar,
+)
+from src.analytics.best_week import overlay_preset_best_week, preset_best_week_label
+from app.career_table import (
+    add_highlight_column,
+    format_peak_prime_caption,
+    prime_season_years,
+    style_career_breakdown,
+)
+from app.consistency_ui import render_consistency_panel
+from app.weekly_table import add_weekly_highlight_column, style_weekly_breakdown
+from src.analytics.consistency import (
+    consistency_from_weekly,
+    format_weekly_boom_bust_caption,
+    position_weekly_percentiles,
+)
+from src.analytics.metrics import add_fp_per_game, peak_season_year
+from src.analytics.peer_z import (
+    add_peer_z_era_column,
+    peer_df_for_entity_season,
+    peer_z_score,
+)
 from src.analytics.variance import add_volume_flags, compute_career_z, load_thresholds
 from src.db.connection import db_exists
 from src.db.queries import (
-    dst_season_stats_for_peer_analysis,
+    entity_all_weekly,
     entity_seasons,
     entity_weekly,
     player_team_splits,
@@ -18,11 +43,63 @@ from src.db.queries import (
 from src.entities import dst_display_name, dst_team_from_entity, is_dst_entity
 from src.positions import DST_POSITION, normalize_fantasy_position
 from src.stats_columns import display_stats_for_positions, rename_stats_for_display
-from src.ui_text import section_h3, title_case_ui
+from src.ui_text import (
+    best_week_fp_column_label,
+    best_week_scoring_label,
+    section_h3,
+    title_case_ui,
+)
+
+
+def _profile_season_scope_caption(seasons: list[int] | None) -> str | None:
+    if not seasons:
+        return None
+    if len(seasons) == 1:
+        return f"Season list: this player's **{seasons[0]}** season only."
+    return (
+        f"Season list: this player's career (**{seasons[-1]}–{seasons[0]}**, "
+        f"{len(seasons)} seasons)."
+    )
+
+
+def _sync_profile_sidebar_seasons(
+    entity_id: str,
+    available: list[int],
+    query_season: int | None,
+) -> None:
+    """Limit sidebar seasons to the selected entity; rerun once when the list changes."""
+    prev_entity = st.session_state.get("profile_seasons_entity")
+    st.session_state["profile_entity_seasons"] = available
+
+    if not available:
+        return
+
+    if entity_id != prev_entity:
+        st.session_state["profile_seasons_entity"] = entity_id
+        if query_season in available:
+            st.session_state["profile_season_default"] = query_season
+        else:
+            st.session_state["profile_season_default"] = max(available)
+        st.rerun()
+
+    current_default = st.session_state.get("profile_season_default")
+    if current_default not in available:
+        st.session_state["profile_season_default"] = (
+            query_season if query_season in available else max(available)
+        )
+        st.rerun()
+
 
 st.set_page_config(page_title="Player Profile | Fantasy Tracker", layout="wide")
 
-controls = render_sidebar()
+_query_season = query_param_season()
+controls = render_sidebar(
+    default_season=st.session_state.get("profile_season_default") or _query_season,
+    season_options=st.session_state.get("profile_entity_seasons"),
+    season_scope_caption=_profile_season_scope_caption(
+        st.session_state.get("profile_entity_seasons")
+    ),
+)
 st.title("Player Profile")
 st.caption("Search for a player (QB/RB/WR/TE/K) or a team defense (e.g. DEN).")
 
@@ -31,7 +108,17 @@ if not db_exists():
     st.stop()
 
 conn = get_db()
-entity_id = fuzzy_entity_select("player or defense", conn, key="profile_entity")
+
+if st.session_state.get("profile_entity_id"):
+    entity_id = st.session_state.pop("profile_entity_id")
+elif query_param_entity():
+    entity_id = query_param_entity()
+    st.caption(f"Loaded from link: `{entity_id}`")
+    if st.button("Clear link", key="profile_clear_link"):
+        st.query_params.clear()
+        st.rerun()
+else:
+    entity_id = fuzzy_entity_select("player or defense", conn, key="profile_entity")
 
 if not entity_id:
     st.stop()
@@ -44,6 +131,14 @@ seasons_df = entity_seasons(conn, entity_id, preset)
 if seasons_df.empty:
     st.warning("No season data for this selection.")
     st.stop()
+
+_entity_seasons = sorted(
+    (int(s) for s in seasons_df["season"].dropna().unique()), reverse=True
+)
+_sync_profile_sidebar_seasons(entity_id, _entity_seasons, _query_season)
+
+weekly_all = entity_all_weekly(conn, entity_id, preset)
+seasons_df = overlay_preset_best_week(seasons_df, weekly_all, preset, dst=dst_view)
 
 if dst_view:
     team = dst_team_from_entity(entity_id)
@@ -64,65 +159,121 @@ else:
     st.subheader(f"{display_name} ({primary_pos})")
 
 career = compute_career_z(seasons_df, min_games=min_games)
+career = add_fp_per_game(career)
+
+if controls["era_z"] and not dst_view:
+    all_seasons = season_stats_for_peer_analysis(
+        conn, season=None, preset=preset, min_games=min_games
+    )
+    career = add_peer_z_era_column(career, all_seasons, min_games=min_games)
+
 stat_cols = display_stats_for_positions([primary_pos])
-career_cols = ["season", "teams", "games", "fantasy_points", "best_week", "best_week_fp"]
+career_cols = ["season", "teams", "games", "fantasy_points", "fp_per_game", "best_week", "best_week_fp"]
 if "career_z" in career.columns:
     career_cols.append("career_z")
+if "peer_z_era" in career.columns:
+    career_cols.append("peer_z_era")
 career_cols += [c for c in stat_cols if c in career.columns]
-career_show = rename_stats_for_display(career[career_cols].round(2))
 
-if controls["season"]:
+career_show = rename_stats_for_display(career[career_cols])
+if "best_week_fp" in career.columns and "best_week_scoring" in career.columns:
+    scoring_key = (
+        career["best_week_scoring"].dropna().iloc[0]
+        if career["best_week_scoring"].notna().any()
+        else None
+    )
+    bw_label = best_week_fp_column_label(scoring_key)
+    if "Best Week FP" in career_show.columns and bw_label not in career_show.columns:
+        career_show = career_show.rename(columns={"Best Week FP": bw_label})
+
+peak_yr = peak_season_year(career)
+prime_years = prime_season_years(career)
+peak_prime_caption = format_peak_prime_caption(peak_yr, prime_years)
+if peak_prime_caption:
+    st.caption(peak_prime_caption)
+
+sidebar_season = controls["season"]
+season_row = None
+if sidebar_season:
+    match = seasons_df[seasons_df["season"] == sidebar_season]
+    if not match.empty:
+        season_row = match.iloc[0]
+
+if season_row is not None:
     thresholds = load_thresholds()
-    season_row = seasons_df[seasons_df["season"] == controls["season"]]
-    if not season_row.empty:
-        if dst_view:
-            peer_df = dst_season_stats_for_peer_analysis(
-                conn, season=controls["season"], min_games=min_games
-            )
-        else:
-            peer_df = season_stats_for_peer_analysis(
-                conn, season=controls["season"], preset=preset, min_games=min_games
-            )
+    peer_df = peer_df_for_entity_season(
+        conn,
+        sidebar_season,
+        preset,
+        season_row["position"],
+        min_games,
+    )
+    if not dst_view:
         peer_df = add_volume_flags(peer_df, min_games=min_games)
-        fp = float(season_row.iloc[0]["fantasy_points"])
-        peer_z = peer_z_score(
-            fp,
-            peer_df,
-            season_row.iloc[0]["position"],
-            min_peers=thresholds.get("min_qualified_peers", 10),
-        )
-        c1, c2, c3 = st.columns(3)
-        c1.metric("Season FP", f"{fp:.1f}")
-        if peer_z is not None:
-            c2.metric("Peer Z (season)", f"{peer_z:.2f}")
-            cz_row = career[career["season"] == controls["season"]]
-            if (
-                not cz_row.empty
-                and bool(cz_row["peer_qualified"].iloc[0])
-                and not np.isnan(cz_row["career_z"].iloc[0])
-            ):
-                c3.metric("Career Z", f"{cz_row['career_z'].iloc[0]:.2f}")
+    fp = float(season_row["fantasy_points"])
+    peer_z = peer_z_score(
+        fp,
+        peer_df,
+        season_row["position"],
+        min_peers=thresholds.get("min_qualified_peers", 10),
+    )
+    st.markdown(section_h3(f"Season snapshot ({sidebar_season})"))
+    c1, c2, c3, c4 = st.columns(4)
+    games = int(season_row.get("games", 0) or 0)
+    c1.metric("Season FP", f"{fp:.1f}")
+    c2.metric("FP per game", f"{fp / games:.1f}" if games else "—")
+    if peer_z is not None:
+        c3.metric("Peer Z (season)", f"{peer_z:.2f}")
+    cz_row = career[career["season"] == sidebar_season]
+    if (
+        not cz_row.empty
+        and "career_z" in cz_row.columns
+        and bool(cz_row["peer_qualified"].iloc[0])
+        and not np.isnan(cz_row["career_z"].iloc[0])
+    ):
+        c4.metric("Career Z", f"{cz_row["career_z"].iloc[0]:.2f}")
 
 st.markdown(section_h3("Career by season"))
 if dst_view:
     st.caption(
-        "One row per season for this team's defense/special teams unit. "
-        "**Career Z** uses only seasons meeting min games (sidebar)."
+        "One row per season for this team's defense. **Career Z** uses all seasons with "
+        "games played (min games filter does not apply to DST). "
+        "Orange = peak FP, green = prime, orange with green ring = both."
     )
 else:
     st.caption(
-        "Primary columns match the player's position; rushing/passing stats appear for QBs and "
-        "other cross-role production. **Career Z** uses only seasons meeting min games and "
-        "position volume gates (same as peer Z). Expand below for every stored stat."
+        "**Career Z** and peer gates use min games and position volume rules. "
+        f"**Best week** uses weekly peaks for the sidebar preset ({preset_best_week_label(preset)}). "
+        "See **Highlight** column and chart legend when a season is peak, prime, or both."
     )
-st.dataframe(career_show, use_container_width=True, hide_index=True)
+season_series = career["season"].astype(int)
+career_show = add_highlight_column(
+    career_show,
+    season_series,
+    peak_season=peak_yr,
+    prime_seasons=prime_years,
+)
+styled_career = style_career_breakdown(
+    career_show,
+    season_series,
+    peak_season=peak_yr,
+    prime_seasons=prime_years,
+)
+st.dataframe(styled_career, use_container_width=True, hide_index=True)
+
+st.download_button(
+    title_case_ui("Download career CSV"),
+    career[career_cols].to_csv(index=False),
+    file_name=f"profile_{entity_id.replace(':', '_')}_career.csv",
+    mime="text/csv",
+)
 
 with st.expander(title_case_ui("All career stats")):
-    all_career = ["season", "teams", "games", "fantasy_points"] + [
+    all_career = ["season", "teams", "games", "fantasy_points", "fp_per_game"] + [
         c for c in display_stats_for_positions([primary_pos]) if c in career.columns
     ]
     st.dataframe(
-        rename_stats_for_display(career[all_career].round(2)),
+        rename_stats_for_display(career[all_career]),
         use_container_width=True,
         hide_index=True,
     )
@@ -130,30 +281,67 @@ with st.expander(title_case_ui("All career stats")):
 st.markdown(section_h3("Fantasy points by season"))
 if dst_view and len(career) >= 15:
     st.caption("Long career span — axis shows every few seasons for readability.")
-season_fantasy_points_chart(career, dense=dst_view)
+st.caption(
+    "Orange = peak FP · green = prime only · orange with green ring = **peak and prime** same season."
+)
+season_fantasy_points_chart(
+    career,
+    dense=dst_view,
+    peak_season=peak_yr,
+    prime_seasons=prime_years,
+)
 
-if controls["season"]:
+if sidebar_season and season_row is not None:
     if not dst_view:
-        splits = player_team_splits(conn, entity_id, controls["season"], preset)
+        splits = player_team_splits(conn, entity_id, sidebar_season, preset)
         if len(splits) > 1:
-            st.markdown(section_h3(f"Team splits ({controls['season']})"))
-            split_cols = ["team", "games", "fantasy_points"] + [
+            st.markdown(section_h3(f"Team splits ({sidebar_season})"))
+            split_cols = ["team", "games", "fantasy_points", "fp_per_game"] + [
                 c for c in stat_cols if c in splits.columns
             ]
+            splits = add_fp_per_game(splits)
             st.dataframe(
-                rename_stats_for_display(splits[split_cols].round(2)),
+                rename_stats_for_display(splits[split_cols]),
                 use_container_width=True,
                 hide_index=True,
             )
 
-    weekly = entity_weekly(conn, entity_id, controls["season"], preset)
+    weekly = entity_weekly(conn, entity_id, sidebar_season, preset)
     if not weekly.empty:
-        st.markdown(section_h3(f"Weekly ({controls['season']})"))
+        pos_label = str(season_row.get("position", primary_pos))
+        p25, p75 = position_weekly_percentiles(
+            conn, sidebar_season, season_row["position"], preset
+        )
+        consistency_metrics = consistency_from_weekly(weekly, p25=p25, p75=p75)
+        render_consistency_panel(
+            consistency_metrics,
+            season=sidebar_season,
+            position_label=pos_label,
+        )
+        st.caption(format_weekly_boom_bust_caption(p25, p75, position_label=pos_label))
+
+        st.markdown(section_h3(f"Weekly fantasy points ({sidebar_season})"))
+        weekly_fantasy_points_chart(weekly, p25=p25, p75=p75)
+
+        st.markdown(section_h3(f"Weekly table ({sidebar_season})"))
+        if "opponent" in weekly.columns and weekly["opponent"].isna().all():
+            st.caption(
+                "Opponent not loaded yet — use sidebar **Repair database** or re-ingest this season."
+            )
         week_cols = ["week", "fantasy_points"] + [c for c in stat_cols if c in weekly.columns]
+        if "opponent" in weekly.columns:
+            week_cols.insert(1, "opponent")
         if not dst_view:
-            week_cols.insert(1, "team")
-        st.dataframe(
-            rename_stats_for_display(weekly[week_cols].round(2)),
-            use_container_width=True,
-            hide_index=True,
+            insert_at = 2 if "opponent" in week_cols else 1
+            week_cols.insert(insert_at, "team")
+        weekly_show = rename_stats_for_display(weekly[week_cols])
+        weekly_show = add_weekly_highlight_column(weekly_show, weekly, p25=p25, p75=p75)
+        styled_weekly = style_weekly_breakdown(weekly_show, weekly, p25=p25, p75=p75)
+        st.dataframe(styled_weekly, use_container_width=True, hide_index=True)
+        st.download_button(
+            title_case_ui("Download weekly CSV"),
+            weekly[week_cols].to_csv(index=False),
+            file_name=f"profile_{entity_id.replace(':', '_')}_{sidebar_season}_weekly.csv",
+            mime="text/csv",
+            key="profile_weekly_csv",
         )

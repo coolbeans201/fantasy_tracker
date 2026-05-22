@@ -84,6 +84,12 @@ def normalize_weekly(df: pd.DataFrame) -> pd.DataFrame:
 
     out = out[out["season_type"] == "REG"].copy()
     out["team"] = out["team"].fillna("UNK")
+    if "opponent" in out.columns:
+        out["opponent"] = out["opponent"].astype(str).str.strip()
+        out.loc[
+            out["opponent"].isin(("", "nan", "None", "NA", "<NA>")),
+            "opponent",
+        ] = pd.NA
     out["position"] = out["position"].apply(normalize_fantasy_position)
 
     before_skill = len(out)
@@ -190,9 +196,9 @@ def normalize_team_dst(df: pd.DataFrame) -> pd.DataFrame:
         if src in df.columns and dst not in out.columns:
             out[dst] = df[src]
 
-    for col in ["team", "season", "week", "season_type", *DST_STAT_COLUMNS]:
+    for col in ["team", "season", "week", "season_type", "opponent", *DST_STAT_COLUMNS]:
         if col not in out.columns:
-            out[col] = None if col in ("team", "season_type") else 0
+            out[col] = None if col in ("team", "season_type", "opponent") else 0
         elif col in DST_STAT_COLUMNS:
             out[col] = pd.to_numeric(out[col], errors="coerce").fillna(0)
 
@@ -202,6 +208,12 @@ def normalize_team_dst(df: pd.DataFrame) -> pd.DataFrame:
     out["games"] = 1
     out = out[out["season_type"] == "REG"].copy()
     out["team"] = out["team"].fillna("UNK").astype(str).str.strip()
+    if "opponent" in out.columns:
+        out["opponent"] = out["opponent"].astype(str).str.strip()
+        out.loc[
+            out["opponent"].isin(("", "nan", "None", "NA", "<NA>")),
+            "opponent",
+        ] = pd.NA
     out = out[out["team"].notna() & (out["team"] != "")]
     return out
 
@@ -238,8 +250,9 @@ def build_team_dst_aggregates(weekly: pd.DataFrame) -> pd.DataFrame:
 def _table_columns(table: str) -> list[str]:
     meta = {
         "weekly": [
-            "player_id", "player_name", "season", "week", "season_type", "team", "position",
-            "games", *STAT_COLUMNS, *KICKER_STAT_COLUMNS, *FANTASY_POINT_COLUMNS, KICKER_FP_COLUMN,
+            "player_id", "player_name", "season", "week", "season_type", "team", "opponent",
+            "position", "games", *STAT_COLUMNS, *KICKER_STAT_COLUMNS, *FANTASY_POINT_COLUMNS,
+            KICKER_FP_COLUMN,
         ],
         "season_team": [
             "player_id", "player_name", "season", "team", "position", "games",
@@ -251,7 +264,7 @@ def _table_columns(table: str) -> list[str]:
             "best_week", "best_week_fp", "best_week_scoring",
         ],
         "team_dst_weekly": [
-            "team", "season", "week", "season_type", "games",
+            "team", "season", "week", "season_type", "opponent", "games",
             *DST_STAT_COLUMNS, DST_FP_COLUMN,
         ],
         "team_dst_season": [

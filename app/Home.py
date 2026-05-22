@@ -1,9 +1,11 @@
 """Fantasy Tracker — home page."""
 
+from datetime import datetime
+
 import streamlit as st
 
 from app.components import render_sidebar
-from src.db.connection import db_exists, list_ingested_seasons
+from src.db.connection import db_exists, get_ingest_summary
 from src.ui_text import title_case_ui
 
 st.set_page_config(
@@ -28,10 +30,45 @@ with col1:
     st.caption("Best players by season, position, and team filters.")
 with col2:
     st.page_link("pages/2_Player_Profile.py", label="Player Profile", icon="👤")
-    st.caption("Career breakdown, best week, and Z-scores.")
+    st.caption("Career breakdown, consistency, and Z-scores.")
 with col3:
     st.page_link("pages/3_Compare.py", label="Compare Players", icon="⚖️")
     st.caption("All-time or single-season head-to-head.")
+
+st.divider()
+
+st.subheader(title_case_ui("Database status"))
+if db_exists():
+    summary = get_ingest_summary()
+    seasons = summary["seasons"]
+    if seasons:
+        span = f"{seasons[-1]}–{seasons[0]}" if len(seasons) > 1 else str(seasons[0])
+        st.success(
+            f"**{summary['season_count']}** seasons loaded ({span}). "
+            f"Latest season: **{summary['latest_season']}**."
+        )
+        if summary.get("latest_ingested_at") is not None:
+            ts = summary["latest_ingested_at"]
+            if hasattr(ts, "strftime"):
+                st.caption(f"Last ingest recorded: {ts.strftime('%Y-%m-%d %H:%M')}")
+            else:
+                st.caption(f"Last ingest recorded: {ts}")
+        if summary.get("total_rows"):
+            st.caption(f"Manifest row count (sum): {summary['total_rows']:,}")
+        missing_hint = ""
+        latest = seasons[0]
+        if latest < datetime.now().year - 1:
+            missing_hint = (
+                f" Tip: if **{latest + 1}** or newer seasons are missing, run ingest after "
+                "the regular season ends."
+            )
+        st.caption(
+            f"Seasons: {', '.join(str(s) for s in sorted(seasons, reverse=True))}.{missing_hint}"
+        )
+    else:
+        st.info("Database exists but no seasons ingested yet.")
+else:
+    st.warning("No database at `data/fantasy_tracker.duckdb`. Run ingest to begin.")
 
 st.divider()
 
@@ -42,13 +79,7 @@ st.code(
     language="powershell",
 )
 
-if db_exists():
-    seasons = list_ingested_seasons()
-    if seasons:
-        st.success(f"Loaded seasons: {', '.join(str(s) for s in sorted(seasons))}")
-    else:
-        st.info("Database exists but no seasons ingested yet.")
-else:
-    st.warning("No database at `data/fantasy_tracker.duckdb`. Run ingest to begin.")
-
-st.caption("Data coverage: nflverse (~1999+). Regular season only. Ingest new seasons after they complete.")
+st.caption(
+    "Share a profile: open a player, then copy the browser URL (includes `entity` and `season`). "
+    "Data coverage: nflverse (~1999+). Regular season only."
+)

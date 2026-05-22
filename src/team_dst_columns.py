@@ -17,6 +17,8 @@ DST_STAT_COLUMNS = [
 NFLVERSE_TEAM_DST_MAP: dict[str, str] = {
     "team": "team",
     "recent_team": "team",
+    "opponent_team": "opponent",
+    "opponent": "opponent",
     "season": "season",
     "week": "week",
     "season_type": "season_type",
