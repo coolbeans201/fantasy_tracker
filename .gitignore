@@ -24,6 +24,7 @@ Thumbs.db
 .streamlit/secrets.toml
 
 # Local publish helper (not part of the app)
+criptspublish_to_github.ps1
 COMMIT_MSG.txt
 git_log.txt
 _git_out.txt
