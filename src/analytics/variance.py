@@ -9,7 +9,6 @@ import pandas as pd
 import yaml
 
 from src.positions import is_dst_position, positions_for_peer_grouping
-from src.scoring.calc import fp_column_for_preset, resolve_preset
 from src.settings import get_min_games_default
 
 THRESHOLDS_PATH = Path(__file__).parent / "thresholds.yaml"
@@ -127,37 +126,10 @@ def compute_career_z(
     return out
 
 
-def enrich_season_with_z_scores(
-    conn,
-    season: int,
-    preset: str,
-    include_era: bool = False,
-    min_games: int | None = None,
-    positions: list[str] | None = None,
-) -> pd.DataFrame:
-    """Build season leaderboard dataframe with Z columns (delegates to peer_z)."""
-    from src.analytics.peer_z import enrich_leaders_dataframe
-    from src.db.queries import season_leaders
-    from src.positions import OFFENSE_POSITIONS
-
-    mg = get_min_games(min_games)
-    pos = positions or list(OFFENSE_POSITIONS)
-    df = season_leaders(conn, season, preset, positions=pos, min_games=mg)
-    if df.empty:
-        return df
-    df = enrich_leaders_dataframe(
-        conn, df, season, preset, pos, mg, era_z=include_era
-    )
-    preset_key = resolve_preset(preset)
-    fp_col = fp_column_for_preset(preset_key)
-    return df.sort_values("fantasy_points" if "fantasy_points" in df.columns else fp_col, ascending=False)
-
-
 __all__ = [
     "add_volume_flags",
     "compute_career_z",
     "compute_peer_z_era",
-    "enrich_season_with_z_scores",
     "get_min_games",
     "load_thresholds",
     "qualifies_for_peer_z",

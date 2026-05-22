@@ -156,6 +156,92 @@ def season_leaders(
     return pd.concat(frames, ignore_index=True)
 
 
+def _aggregate_leader_window(per_season: pd.DataFrame) -> pd.DataFrame:
+    """Sum qualified player-season rows into one row per player (or team for DST)."""
+    if per_season.empty:
+        return per_season
+
+    if "player_id" in per_season.columns:
+        id_col = "player_id"
+    elif "team" in per_season.columns:
+        id_col = "team"
+    else:
+        return per_season
+    stat_cols = [
+        c
+        for c in per_season.columns
+        if c
+        not in {
+            id_col,
+            "player_name",
+            "position",
+            "team",
+            "teams",
+            "season",
+            "games",
+            "fantasy_points",
+        }
+        and pd.api.types.is_numeric_dtype(per_season[c])
+    ]
+
+    agg: dict = {
+        "player_name": ("player_name", "last"),
+        "position": ("position", "last"),
+        "seasons_in_window": ("season", "nunique"),
+        "games": ("games", "sum"),
+        "fantasy_points": ("fantasy_points", "sum"),
+    }
+    if "team" in per_season.columns:
+        agg["team"] = ("team", "last")
+    if "teams" in per_season.columns:
+        agg["teams"] = ("teams", "last")
+    for col in stat_cols:
+        agg[col] = (col, "sum")
+
+    grouped = per_season.groupby(id_col, as_index=False).agg(**agg)
+    if "fantasy_points" in grouped.columns and "games" in grouped.columns:
+        grouped["fp_per_game"] = grouped["fantasy_points"] / grouped["games"].replace(0, pd.NA)
+    return grouped
+
+
+def season_leaders_window(
+    conn: duckdb.DuckDBPyConnection,
+    seasons: list[int],
+    preset: str,
+    positions: list[str] | None = None,
+    min_games: int | None = None,
+) -> pd.DataFrame:
+    """
+    Window leaderboard: sum FP and games across seasons (min games applied per season).
+    Team filter and team splits are not supported in window mode.
+    """
+    if not seasons:
+        return pd.DataFrame()
+    if min_games is None:
+        min_games = get_min_games_default()
+
+    frames: list[pd.DataFrame] = []
+    for yr in seasons:
+        part = season_leaders(
+            conn,
+            int(yr),
+            preset,
+            positions=positions,
+            team=None,
+            min_games=min_games,
+            use_team_splits=False,
+        )
+        if not part.empty:
+            part = part.copy()
+            part["season"] = int(yr)
+            frames.append(part)
+
+    if not frames:
+        return pd.DataFrame()
+    per_season = pd.concat(frames, ignore_index=True)
+    return _aggregate_leader_window(per_season)
+
+
 def dst_team_seasons(conn: duckdb.DuckDBPyConnection, team: str) -> pd.DataFrame:
     stats = sql_dst_stat_select()
     return _fetch_df(
@@ -425,6 +511,7 @@ def compare_entities(
     entity_id_b: str,
     preset: str,
     season: int | None = None,
+    seasons: list[int] | None = None,
 ) -> tuple[pd.DataFrame, pd.DataFrame]:
     df_a = entity_seasons(conn, entity_id_a, preset)
     df_b = entity_seasons(conn, entity_id_b, preset)
@@ -432,6 +519,10 @@ def compare_entities(
         yr = int(season)
         df_a = df_a[df_a["season"].astype(int) == yr]
         df_b = df_b[df_b["season"].astype(int) == yr]
+    elif seasons:
+        window = {int(s) for s in seasons}
+        df_a = df_a[df_a["season"].astype(int).isin(window)]
+        df_b = df_b[df_b["season"].astype(int).isin(window)]
     for frame, eid in ((df_a, entity_id_a), (df_b, entity_id_b)):
         if not frame.empty:
             frame["player_id"] = eid
@@ -537,14 +628,21 @@ def _label_dst_search_results(df: pd.DataFrame) -> pd.DataFrame:
 
 
 def teams_for_season(conn: duckdb.DuckDBPyConnection, season: int) -> list[str]:
+    return teams_for_seasons(conn, [season])
+
+
+def teams_for_seasons(conn: duckdb.DuckDBPyConnection, seasons: list[int]) -> list[str]:
+    if not seasons:
+        return []
+    placeholders = ",".join(["?"] * len(seasons))
     rows = conn.execute(
-        """
+        f"""
         SELECT DISTINCT team FROM (
-            SELECT team FROM season_team_stats WHERE season = ?
+            SELECT team FROM season_team_stats WHERE season IN ({placeholders})
             UNION
-            SELECT team FROM team_defense_season WHERE season = ?
+            SELECT team FROM team_defense_season WHERE season IN ({placeholders})
         ) ORDER BY team
         """,
-        [season, season],
+        [*seasons, *seasons],
     ).fetchall()
     return [str(r[0]) for r in rows]

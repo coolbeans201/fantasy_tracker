@@ -19,7 +19,8 @@ render_sidebar()
 st.title("Fantasy Tracker")
 st.markdown(
     "Explore **completed NFL regular seasons** with standard, half-PPR, and full PPR scoring. "
-    "Analyze season leaders, player careers, head-to-head comparisons, and variance vs peers."
+    "Use the sidebar to view one season, a range, or hand-picked years—then explore leaders, "
+    "careers, and head-to-head comparisons."
 )
 
 st.divider()
@@ -33,7 +34,7 @@ with col2:
     st.caption("Career breakdown, consistency, and Z-scores.")
 with col3:
     st.page_link("pages/3_Compare.py", label="Compare Players", icon="⚖️")
-    st.caption("All-time or single-season head-to-head.")
+    st.caption("All-time, window, or single-season head-to-head.")
 
 st.divider()
 

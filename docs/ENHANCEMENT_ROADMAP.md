@@ -32,7 +32,7 @@ flowchart LR
 
 | Issue | Location | Proposed fix |
 |-------|----------|--------------|
-| Z-score logic duplicated inline | `app/pages/1_Season_Leaders.py` vs unused `enrich_season_with_z_scores` in `src/analytics/variance.py` | Wire Season Leaders through shared helpers in `src/analytics/peer_z.py` |
+| ~~Z-score logic duplicated inline~~ | Season Leaders | Done — `enrich_leaders_dataframe` in `src/analytics/peer_z.py` |
 | **Best week** always uses half-PPR for offense | `scripts/ingest_season.py` | Compute best week from `weekly_stats` using **sidebar preset**, or label UI clearly: “Best week (Half-PPR)” |
 | K peer Z gaps | `src/analytics/thresholds.yaml` | Add `K` volume gate (e.g. min games / attempts via existing gate pattern) |
 | DST peer Z + min games | `dst_season_leaders`, sidebar min games | **Do not apply min games to DST** — a team defense plays every week; peer Z cohort is all teams that season. Optionally skip min-games filter in `dst_season_leaders` entirely |
@@ -50,8 +50,7 @@ flowchart LR
 
 ### A3. Reliability (lightweight)
 
-- Document when `recompute_games_played` / `rebuild_players_table` run on app start (`app/components.py`)
-- Optional later: “Repair DB” button or move maintenance to ingest-only to speed Streamlit reloads
+- ~~“Repair DB” button~~ — sidebar **Repair database** (games, player index, display names, weekly opponents); not run on every app load
 
 ---
 
@@ -226,4 +225,4 @@ All on **completed REG seasons** with existing ingest.
 - [x] **Phase 2:** FP/game, `consistency.py`, Profile weekly chart + consistency panel
 - [x] **Phase 3:** Compare career Z + consistency + charts, Leader→Profile, Era Z on Profile
 - [x] **Pre–Phase 4 (session polish):** Leader name links, weekly opponent + repair backfill, Compare union/shared season sidebar + cross-era all-time, dev file-watcher off
-- [ ] **Phase 4:** Multi-season sidebar (single/range/pick), window Leaders, Compare selected seasons, Profile window filter + summary, metric ambiguity captions (Theme C3)
+- [x] **Phase 4:** Multi-season sidebar (single/range/pick), window Leaders, Compare selected seasons, Profile window filter + summary, metric ambiguity captions (Theme C3)

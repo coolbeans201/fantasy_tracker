@@ -38,7 +38,23 @@ from src.positions import FANTASY_POSITIONS, leader_position_options
 
 from src.scoring.calc import DISPLAY_PRESETS
 
+from src.season_selection import (
+    SEASON_MODE_PICK,
+    SEASON_MODE_RANGE,
+    SEASON_MODE_SINGLE,
+    is_multi_season_window,
+    metric_window_caption,
+    resolve_season_window,
+    sidebar_window_caption,
+)
 from src.settings import get_min_games_default
+
+_SIDEBAR_MODE_LABELS = {
+    SEASON_MODE_SINGLE: "Single season",
+    SEASON_MODE_RANGE: "Season range",
+    SEASON_MODE_PICK: "Pick seasons",
+}
+_SIDEBAR_LABEL_TO_MODE = {v: k for k, v in _SIDEBAR_MODE_LABELS.items()}
 
 
 
@@ -96,6 +112,19 @@ def query_param_entity() -> str | None:
 
 
 
+def _empty_sidebar_controls() -> dict:
+    return {
+        "season": None,
+        "seasons": [],
+        "season_mode": SEASON_MODE_SINGLE,
+        "is_multi_season": False,
+        "preset": "Half-PPR",
+        "era_z": False,
+        "min_games": get_min_games_default(),
+        "fantasy_positions": leader_position_options(),
+    }
+
+
 def render_sidebar(
     *,
     default_season: int | None = None,
@@ -108,66 +137,114 @@ def render_sidebar(
 
     if not db_exists():
         st.sidebar.warning("No database found. Run ingest first.")
-        return {"season": None, "preset": "Half-PPR", "era_z": False, "min_games": get_min_games_default()}
+        return _empty_sidebar_controls()
 
+    ingested = list_ingested_seasons()
     if season_options is not None:
-        seasons = sorted(season_options, reverse=True)
+        allowed = sorted(set(season_options) & set(ingested), reverse=True)
     else:
-        seasons = list_ingested_seasons()
-    if not seasons:
+        allowed = ingested
+    if not allowed:
         st.sidebar.warning("No seasons ingested.")
-        return {"season": None, "preset": "Half-PPR", "era_z": False, "min_games": get_min_games_default()}
+        return _empty_sidebar_controls()
 
     preset = st.sidebar.selectbox("Scoring", list(DISPLAY_PRESETS.keys()), index=1)
 
-    season_default = default_season if default_season in seasons else seasons[0]
-    season_index = seasons.index(season_default)
-    season = st.sidebar.selectbox("Season", seasons, index=season_index)
+    if "sidebar_season_mode" not in st.session_state:
+        st.session_state.sidebar_season_mode = SEASON_MODE_SINGLE
+
+    _mode_keys = list(_SIDEBAR_MODE_LABELS.keys())
+    _prev_mode = st.session_state.get("sidebar_season_mode", SEASON_MODE_SINGLE)
+    _radio_index = _mode_keys.index(_prev_mode) if _prev_mode in _mode_keys else 0
+
+    mode_label = st.sidebar.radio(
+        "Season view",
+        list(_SIDEBAR_MODE_LABELS.values()),
+        index=_radio_index,
+        horizontal=True,
+        key="sidebar_season_mode_radio",
+    )
+    mode = _SIDEBAR_LABEL_TO_MODE[mode_label]
+    st.session_state.sidebar_season_mode = mode
+
+    ingested_asc = sorted(allowed)
+    season_default = default_season if default_season in allowed else allowed[0]
+
+    if mode == SEASON_MODE_SINGLE:
+        season_index = allowed.index(season_default)
+        single_year = st.sidebar.selectbox("Season", allowed, index=season_index)
+        window_seasons = resolve_season_window(
+            allowed, SEASON_MODE_SINGLE, single_year=int(single_year)
+        )
+    elif mode == SEASON_MODE_RANGE:
+        default_lo = min(season_default, allowed[-1])
+        default_hi = max(season_default, allowed[0])
+        c_from, c_to = st.sidebar.columns(2)
+        range_start = c_from.selectbox(
+            "From",
+            ingested_asc,
+            index=ingested_asc.index(min(default_lo, default_hi)),
+            key="sidebar_range_start",
+        )
+        range_end = c_to.selectbox(
+            "To",
+            ingested_asc,
+            index=ingested_asc.index(max(default_lo, default_hi)),
+            key="sidebar_range_end",
+        )
+        window_seasons = resolve_season_window(
+            allowed,
+            SEASON_MODE_RANGE,
+            range_start=int(range_start),
+            range_end=int(range_end),
+        )
+    else:
+        pick_default = allowed[: min(5, len(allowed))]
+        picked = st.sidebar.multiselect(
+            "Seasons",
+            options=allowed,
+            default=pick_default,
+            key="sidebar_season_pick",
+        )
+        window_seasons = resolve_season_window(
+            allowed, SEASON_MODE_PICK, picked=picked
+        )
+
+    st.sidebar.caption(sidebar_window_caption(window_seasons, mode=mode))
     if season_scope_caption:
         st.sidebar.caption(season_scope_caption)
+    metric_cap = metric_window_caption(window_seasons)
+    if metric_cap:
+        st.sidebar.caption(metric_cap)
+
+    if not window_seasons:
+        st.sidebar.warning("Select at least one season in this window.")
 
     default_min = get_min_games_default()
-
     min_games = st.sidebar.slider(
-
         "Min games played",
-
         min_value=1,
-
         max_value=17,
-
         value=default_min,
-
         help=f"Default {default_min} (config/settings.yaml) — half-season threshold",
-
     )
-
     era_z = st.sidebar.checkbox("Show peer Z (all-time era)", value=False)
 
-
-
     if st.sidebar.button("Repair database", help="Rebuild player index and refresh games played."):
-
         run_database_maintenance()
-
         st.sidebar.success("Database maintenance finished.")
-
         st.rerun()
 
-
-
+    detail_season = window_seasons[0] if window_seasons else None
     return {
-
-        "season": season,
-
+        "season": detail_season,
+        "seasons": window_seasons,
+        "season_mode": mode,
+        "is_multi_season": is_multi_season_window(window_seasons),
         "preset": preset,
-
         "era_z": era_z,
-
         "min_games": min_games,
-
         "fantasy_positions": leader_position_options(),
-
     }
 
 

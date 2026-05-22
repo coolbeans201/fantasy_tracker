@@ -77,6 +77,7 @@ from src.stats_columns import (
 
 )
 
+from src.season_selection import format_season_span
 from src.ui_text import section_h3, title_case_ui
 
 
@@ -194,25 +195,38 @@ if "compare_mode" not in st.session_state:
 
 
 
+_COMPARE_MODES = ("All-time", "Single season", "Selected seasons")
+
 st.radio(
-
     "Compare mode",
-
-    ["All-time", "Single season"],
-
+    list(_COMPARE_MODES),
     horizontal=True,
-
     key="compare_mode",
-
 )
-
 mode = str(st.session_state.compare_mode)
+if mode not in _COMPARE_MODES:
+    mode = _COMPARE_MODES[0]
+    st.session_state.compare_mode = mode
 
-compare_season = (
+if mode == "Selected seasons" and not controls["is_multi_season"]:
+    st.caption(
+        f"**Selected seasons** uses the sidebar year (**{controls['season']}**). "
+        "For a multi-year window, set sidebar **Season view** to **Season range** or "
+        "**Pick seasons**, then select **Selected seasons** again."
+    )
+elif mode == "Selected seasons":
+    st.caption(
+        f"**Selected seasons** compares each player over the sidebar window "
+        f"(**{format_season_span(controls['seasons'])}**). Overlap between players is not required."
+    )
+else:
+    st.caption(
+        "**All-time** = full careers · **Single season** = same calendar year for both · "
+        "**Selected seasons** = sidebar window (one or many years)."
+    )
 
-    int(controls["season"]) if mode == "Single season" else None
-
-)
+compare_season = int(controls["season"]) if mode == "Single season" else None
+compare_window = list(controls["seasons"]) if mode == "Selected seasons" else None
 
 
 
@@ -245,20 +259,22 @@ else:
     st.caption(
         "All-time compares full careers (including different eras). "
         "Seasons only one player played still appear in the season-by-season table. "
-        "Use **Single season** when you need the same calendar year for both."
+        "Use **Single season** or **Selected seasons** for a specific calendar span."
     )
     if not _shared_seasons:
         st.info(
             "No overlapping seasons — all-time career compare still works; "
-            "switch to **Single season** only if you want the same year for both."
+            "use **Selected seasons** for the sidebar window without requiring overlap."
         )
 
 
-
 df_a, df_b = compare_entities(
-
-    conn, player_a, player_b, preset, season=compare_season
-
+    conn,
+    player_a,
+    player_b,
+    preset,
+    season=compare_season,
+    seasons=compare_window,
 )
 
 
@@ -395,7 +411,9 @@ def _consistency_panel_for_entity(
 
 
 
-if mode == "All-time":
+if mode in ("All-time", "Selected seasons"):
+    window_view = mode == "Selected seasons"
+    fp_label = "FP (window)" if window_view else "FP (career)"
 
     total_a = df_a["fantasy_points"].sum()
 
@@ -407,18 +425,16 @@ if mode == "All-time":
 
     m1, m2, m3, m4 = st.columns(4)
 
-    m1.metric(name_a, f"{total_a:.1f} FP (career)")
+    m1.metric(name_a, f"{total_a:.1f} {fp_label}")
 
-    m2.metric(name_b, f"{total_b:.1f} FP (career)")
+    m2.metric(name_b, f"{total_b:.1f} {fp_label}")
 
     m3.metric("Difference", f"{total_a - total_b:+.1f}")
 
     m4.metric(
 
-        "FP per game (career)",
-
+        "FP per game",
         f"{total_a / games_a:.1f} vs {total_b / games_b:.1f}" if games_a and games_b else "—",
-
     )
 
 

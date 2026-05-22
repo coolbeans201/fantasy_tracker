@@ -71,6 +71,7 @@ DISPLAY_COLUMN_LABELS: dict[str, str] = {
     "season": "Season",
     "week": "Week",
     "games": "Games",
+    "seasons_in_window": "Seasons",
     "fantasy_points": "Fantasy Points",
     "fp_per_game": "FP Per Game",
     "weekly_std": "Weekly Std Dev",

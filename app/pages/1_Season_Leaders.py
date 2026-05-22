@@ -7,7 +7,8 @@ from app.leader_navigation import render_leaders_table
 from src.analytics.metrics import add_fp_per_game
 from src.analytics.peer_z import enrich_leaders_dataframe
 from src.db.connection import db_exists
-from src.db.queries import season_leaders, teams_for_season
+from src.db.queries import season_leaders, season_leaders_window, teams_for_season
+from src.season_selection import format_season_label, format_season_span, metric_window_caption
 from src.entities import make_dst_entity_id
 from src.positions import (
     OFFENSE_POSITIONS,
@@ -23,7 +24,7 @@ st.set_page_config(page_title="Season Leaders | Fantasy Tracker", layout="wide")
 controls = render_sidebar()
 st.title("Season Leaders")
 
-if not db_exists() or controls["season"] is None:
+if not db_exists() or not controls["seasons"]:
     st.info("Ingest at least one completed season to use this page.")
     st.stop()
 
@@ -47,10 +48,22 @@ if "leaders_positions_prev" not in st.session_state:
     st.session_state.leaders_positions_prev = list(OFFENSE_POSITIONS)
 
 conn = get_db()
+seasons = controls["seasons"]
 season = controls["season"]
+is_window = controls["is_multi_season"]
+window_label = format_season_span(seasons)
 preset = controls["preset"]
 min_games = controls["min_games"]
 positions = _coerce_and_store()
+
+if is_window:
+    st.caption(
+        f"**Window leaders** for {window_label}: totals and FP/G sum each qualified season "
+        f"(min **{min_games}** games per season for offense/K)."
+    )
+    cap = metric_window_caption(seasons)
+    if cap:
+        st.caption(cap)
 
 st.multiselect(
     "Position",
@@ -71,7 +84,10 @@ else:
     st.caption("Uses the sidebar scoring preset for offensive positions (QB/RB/WR/TE).")
 
 dst_view = is_dst_only_selection(positions)
-if dst_view:
+if is_window:
+    team_filter = None
+    use_splits = False
+elif dst_view:
     team_filter = None
     use_splits = False
 else:
@@ -79,15 +95,20 @@ else:
     team_filter = st.selectbox("Team", teams)
     use_splits = team_filter != "All"
 
-df = season_leaders(
-    conn,
-    season,
-    preset,
-    positions=positions,
-    team=team_filter if team_filter not in (None, "All") else None,
-    min_games=min_games,
-    use_team_splits=use_splits,
-)
+if is_window:
+    df = season_leaders_window(
+        conn, seasons, preset, positions=positions, min_games=min_games
+    )
+else:
+    df = season_leaders(
+        conn,
+        season,
+        preset,
+        positions=positions,
+        team=team_filter if team_filter not in (None, "All") else None,
+        min_games=min_games,
+        use_team_splits=use_splits,
+    )
 
 if df.empty:
     st.warning(
@@ -96,9 +117,12 @@ if df.empty:
     )
     st.stop()
 
-df = enrich_leaders_dataframe(
-    conn, df, season, preset, positions, min_games, era_z=controls["era_z"]
-)
+if not is_window:
+    df = enrich_leaders_dataframe(
+        conn, df, season, preset, positions, min_games, era_z=controls["era_z"]
+    )
+elif controls["era_z"]:
+    st.caption("Peer Z (era) is not shown for multi-season window leaders.")
 df = add_fp_per_game(df)
 
 if dst_view:
@@ -106,8 +130,10 @@ if dst_view:
 elif "player_id" in df.columns:
     df["entity_id"] = df["player_id"]
 
-sort_options = ["FP per game", "Fantasy points", "Peer Z (season)"]
-default_sort = 1 if dst_view else 0
+sort_options = ["FP per game", "Fantasy points"]
+if not is_window:
+    sort_options.append("Peer Z (season)")
+default_sort = 0
 sort_by = st.selectbox("Sort by", sort_options, index=default_sort)
 sort_col = {
     "FP per game": "fp_per_game",
@@ -121,6 +147,7 @@ stat_cols = [c for c in display_stats_for_positions(positions) if c in df.column
 if dst_view:
     display_cols = [
         "player_name",
+        "seasons_in_window",
         "games",
         "fantasy_points",
         "fp_per_game",
@@ -134,6 +161,7 @@ else:
         "player_name",
         "position",
         team_col,
+        "seasons_in_window",
         "games",
         "fantasy_points",
         "fp_per_game",
@@ -145,6 +173,8 @@ else:
     column_labels = {}
 
 display_cols = [c for c in display_cols if c in df.columns]
+if "seasons_in_window" in display_cols and not is_window:
+    display_cols.remove("seasons_in_window")
 
 
 def _rename_leader_table(frame, extra_labels: dict[str, str]):
@@ -177,6 +207,8 @@ if "entity_id" in table_df.columns:
         season=season,
         name_column=name_col,
     )
+    if is_window:
+        st.caption("Profile links use the newest year in the sidebar window.")
 else:
     st.dataframe(shown, use_container_width=True, hide_index=True)
 
@@ -197,9 +229,10 @@ if not dst_view:
             hide_index=True,
         )
 
+csv_tag = format_season_label(seasons) if is_window else str(season)
 st.download_button(
     "Download CSV",
     df[display_cols].to_csv(index=False),
-    file_name=f"leaders_{season}.csv",
+    file_name=f"leaders_{csv_tag}.csv",
     mime="text/csv",
 )
