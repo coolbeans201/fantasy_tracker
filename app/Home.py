@@ -5,7 +5,8 @@ from datetime import datetime
 import streamlit as st
 
 from app.components import render_sidebar
-from src.db.connection import db_exists, get_ingest_summary
+from src.db.connection import db_exists, get_connection, get_ingest_summary
+from src.db.queries import list_rankings_seasons, rankings_manifest_summary
 from src.ui_text import title_case_ui
 
 st.set_page_config(
@@ -66,6 +67,28 @@ if db_exists():
         st.caption(
             f"Seasons: {', '.join(str(s) for s in sorted(seasons, reverse=True))}.{missing_hint}"
         )
+        conn = get_connection()
+        try:
+            rank_seasons = list_rankings_seasons(conn)
+            manifest = rankings_manifest_summary(conn)
+        finally:
+            conn.close()
+        if rank_seasons:
+            span = (
+                f"{rank_seasons[0]}–{rank_seasons[-1]}"
+                if len(rank_seasons) > 1
+                else str(rank_seasons[0])
+            )
+            st.caption(
+                f"Draft rankings (FantasyPros ECR): **{len(rank_seasons)}** seasons ({span}). "
+                "Beat-draft-rank features only appear for those years."
+            )
+        elif manifest:
+            st.caption("Draft rankings table is empty — re-run `scripts/ingest_rankings.py`.")
+        else:
+            st.caption(
+                "No draft rankings loaded — run `scripts/ingest_rankings.py` for beat-draft-rank analysis."
+            )
     else:
         st.info("Database exists but no seasons ingested yet.")
 else:

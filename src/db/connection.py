@@ -115,6 +115,55 @@ def _migrate_stat_columns(conn: duckdb.DuckDBPyConnection) -> None:
             )
         except duckdb.Error:
             pass
+    _migrate_rankings_tables(conn)
+
+
+def _migrate_rankings_tables(conn: duckdb.DuckDBPyConnection) -> None:
+    """Create FantasyPros ECR tables on existing databases."""
+    conn.execute(
+        """
+        CREATE TABLE IF NOT EXISTS ecr_draft (
+            player_id VARCHAR NOT NULL,
+            season INTEGER NOT NULL,
+            position VARCHAR NOT NULL,
+            ecr_rank INTEGER NOT NULL,
+            ecr_sd DOUBLE,
+            player_name VARCHAR,
+            team VARCHAR,
+            fantasypros_id VARCHAR,
+            scrape_date DATE,
+            PRIMARY KEY (player_id, season, position)
+        )
+        """
+    )
+    conn.execute(
+        """
+        CREATE TABLE IF NOT EXISTS ecr_weekly (
+            player_id VARCHAR NOT NULL,
+            season INTEGER NOT NULL,
+            week INTEGER NOT NULL,
+            position VARCHAR NOT NULL,
+            ecr_rank INTEGER NOT NULL,
+            ecr_sd DOUBLE,
+            player_name VARCHAR,
+            team VARCHAR,
+            fantasypros_id VARCHAR,
+            scrape_date DATE,
+            PRIMARY KEY (player_id, season, week, position)
+        )
+        """
+    )
+    conn.execute(
+        """
+        CREATE TABLE IF NOT EXISTS rankings_manifest (
+            ingested_at TIMESTAMP NOT NULL,
+            draft_rows INTEGER,
+            weekly_rows INTEGER,
+            seasons_min INTEGER,
+            seasons_max INTEGER
+        )
+        """
+    )
 
 
 

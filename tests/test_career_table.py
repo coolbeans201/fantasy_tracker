@@ -33,6 +33,13 @@ def test_season_highlight_tags_both():
     assert tags.tolist() == ["", "Peak · Prime", "Prime"]
 
 
+def test_season_highlight_tags_no_peak_when_single_season_view():
+    """Peak tags are suppressed when callers pass peak_season=None (one year in view)."""
+    seasons = pd.Series([2023])
+    tags = season_highlight_tags(seasons, peak_season=None, prime_seasons=[2023])
+    assert tags.tolist() == ["Prime"]
+
+
 def test_format_peak_prime_caption_calls_out_both():
     text = format_peak_prime_caption(2020, [2018, 2020, 2022])
     assert "both peak FP and a prime" in text

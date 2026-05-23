@@ -22,6 +22,8 @@ from src.analytics.metrics import count_prime_seasons
 
 from src.analytics.peer_z import peer_df_for_entity_season, peer_z_score
 
+from src.analytics.surprise import season_surprise_for_entity
+
 from src.analytics.variance import add_volume_flags, compute_career_z, load_thresholds
 
 from src.db.connection import db_exists
@@ -36,6 +38,7 @@ from src.db.queries import (
     entity_display_label,
 
     entity_seasons,
+    season_has_rankings,
 
     entity_seasons_available,
 
@@ -78,7 +81,7 @@ from src.stats_columns import (
 )
 
 from src.season_selection import format_season_span
-from src.ui_text import section_h3, title_case_ui
+from src.ui_text import page_title_suffix, section_h3, title_case_ui
 
 
 def _compare_season_scope_caption(seasons: list[int] | None) -> str | None:
@@ -118,7 +121,7 @@ def _sync_compare_sidebar_seasons(
         st.rerun()
 
 
-st.set_page_config(page_title="Compare | Fantasy Tracker", layout="wide")
+st.set_page_config(page_title=page_title_suffix("Compare Players"), layout="wide")
 
 
 
@@ -198,8 +201,9 @@ if "compare_mode" not in st.session_state:
 _COMPARE_MODES = ("All-time", "Single season", "Selected seasons")
 
 st.radio(
-    "Compare mode",
+    title_case_ui("Compare mode"),
     list(_COMPARE_MODES),
+    format_func=title_case_ui,
     horizontal=True,
     key="compare_mode",
 )
@@ -631,7 +635,16 @@ else:
 
         st.caption(f"**{label}** — peer Z (season) {peer_txt}{cz_txt}")
 
-
+    if compare_season is not None and season_has_rankings(conn, compare_season):
+        for label, eid in ((name_a, player_a), (name_b, player_b)):
+            surprise = season_surprise_for_entity(
+                conn, eid, compare_season, preset, min_games=min_games
+            )
+            if surprise:
+                st.caption(
+                    f"**{label}** — draft ECR {surprise['draft_ecr']}, "
+                    f"finish {surprise['finish_rank']}, rank Δ {surprise['rank_delta']:+d}"
+                )
 
     st.markdown(section_h3("Weekly consistency"))
     col_a, col_b = st.columns(2)

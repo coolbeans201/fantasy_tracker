@@ -13,6 +13,9 @@ from src.settings import get_min_games_default
 
 THRESHOLDS_PATH = Path(__file__).parent / "thresholds.yaml"
 
+# Regular-season length used to prorate season volume gates to a single week.
+WEEKS_PER_REGULAR_SEASON = 17
+
 
 def load_thresholds() -> dict:
     with THRESHOLDS_PATH.open(encoding="utf-8") as f:
@@ -60,6 +63,33 @@ def qualifies_for_peer_z(
     if col == "passing_attempts":
         return row.get("passing_attempts", 0) >= minimum
     return row.get(col, 0) >= minimum
+
+
+def qualifies_weekly_volume(row: pd.Series, thresholds: dict | None = None) -> bool:
+    """
+    Whether this player-week counts toward boom/bust peer distributions.
+
+    DST: all team-weeks. K: all weeks with a row. Offense: same volume column as
+    peer Z, with the season minimum divided by WEEKS_PER_REGULAR_SEASON.
+    """
+    if is_dst_position(row.get("position")):
+        return True
+
+    thresholds = thresholds or load_thresholds()
+    grouping = positions_for_peer_grouping(row.get("position"))
+    if grouping == "K":
+        return True
+
+    gate = _volume_column(row.get("position"))
+    if gate is None:
+        return True
+
+    col, season_min = gate
+    if col == "games":
+        return True
+
+    weekly_min = season_min / WEEKS_PER_REGULAR_SEASON
+    return float(row.get(col, 0) or 0) >= weekly_min
 
 
 def add_volume_flags(df: pd.DataFrame, min_games: int | None = None) -> pd.DataFrame:
@@ -133,4 +163,6 @@ __all__ = [
     "get_min_games",
     "load_thresholds",
     "qualifies_for_peer_z",
+    "qualifies_weekly_volume",
+    "WEEKS_PER_REGULAR_SEASON",
 ]

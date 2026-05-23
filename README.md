@@ -12,6 +12,7 @@ Inspired by [NFL Perry](https://www.nflperry.com/) for data use cases, focused o
 - **Player Profile:** **Career & window** (season table, peak/prime, career chart) and **season detail** (peer Z, consistency, weekly opponent, boom/bust weeks)
 - **Compare:** **All-time**, **single season** (same year for both), or **selected seasons** (sidebar window; cross-era OK)
 - **Variance:** Peer Z (season), optional peer Z (era), career Z; volume gates in [`src/analytics/thresholds.yaml`](src/analytics/thresholds.yaml)
+- **Expectations:** FantasyPros draft ECR vs finish rank (winners/losers); weekly ECR on Profile when rankings are ingested
 
 ## Data
 
@@ -42,6 +43,9 @@ py -3.14 -m venv .venv
 # Or full history:
 .\.venv\Scripts\python.exe scripts\ingest_season.py --bulk --from-year 1999 --to-year 2025
 
+# Draft / weekly expert ranks (for beat-draft-rank analysis):
+.\.venv\Scripts\python.exe scripts\ingest_rankings.py
+
 # Run app → open http://localhost:8501
 .\.venv\Scripts\python.exe -m streamlit run app/Home.py
 ```
@@ -59,6 +63,7 @@ Database: `data/fantasy_tracker.duckdb` (gitignored).
 | How does a player’s 2021 compare to their own career? | **Player Profile** — **Career Z** on the season row in **Career & window** |
 | How elite was a season vs peers that year? | **Player Profile** → **Season detail** — **Peer Z (season)**; sidebar **peer Z (era)** for historical baseline on career table |
 | Was he consistent or boom/bust? | **Player Profile** → **Season detail** — consistency panel and weekly table |
+| Did he beat or miss his draft rank? | **Season Leaders** — ingest rankings first; see **Winners & losers** and **Rank Δ** columns |
 | Compare Kelce vs Andrews in 2023 only | **Compare** — **Single season**; sidebar 2023; both must have played that year |
 | Compare Manning vs Mahomes careers (different eras) | **Compare** — **All-time** |
 | Compare two players over 2018–2022 only | **Compare** — sidebar range 2018–2022, mode **Selected seasons** |
@@ -82,6 +87,8 @@ For multi-year compare, set sidebar **Season view** to **Season range** or **Pic
 | Script | Purpose |
 |--------|---------|
 | `scripts/ingest_season.py` | Load seasons into DuckDB (`--season`, `--bulk --from-year` / `--to-year`) |
+| `scripts/ingest_rankings.py` | Load FantasyPros ECR (draft + weekly) from nflverse |
+| `scripts/rankings_coverage.py` | List which seasons have draft ECR vs stats ingest |
 | `scripts/volume_report.py` | CLI check for peer-Z volume gates (`--season 2023`) |
 | `scripts/rebuild_players.py` | Rebuild player search index from `season_stats` |
 | `scripts/check_env.py` | Verify Python arch and package imports |
@@ -118,7 +125,7 @@ docs/                   Enhancement and multi-sport roadmaps
 data/                   Local DuckDB (gitignored)
 ```
 
-Planning docs: [docs/ENHANCEMENT_ROADMAP.md](docs/ENHANCEMENT_ROADMAP.md) (NFL polish, completed), [docs/MULTISPORT_ROADMAP.md](docs/MULTISPORT_ROADMAP.md) (MLB/NBA/NHL brainstorm).
+Planning docs: [docs/ENHANCEMENT_ROADMAP.md](docs/ENHANCEMENT_ROADMAP.md) (NFL polish), [docs/CUSTOM_SCORING.md](docs/CUSTOM_SCORING.md) (custom presets — planned), [docs/MULTISPORT_ROADMAP.md](docs/MULTISPORT_ROADMAP.md) (MLB/NBA/NHL brainstorm).
 
 ## Troubleshooting
 

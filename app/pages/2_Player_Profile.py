@@ -21,7 +21,10 @@ from app.components import (
     render_sidebar,
 )
 from app.consistency_ui import render_consistency_panel
+from app.surprise_ui import render_surprise_metrics_row
 from app.weekly_table import add_weekly_highlight_column, style_weekly_breakdown
+from src.analytics.surprise import enrich_weekly_with_surprise, season_surprise_for_entity
+from src.db.queries import season_has_rankings
 from src.analytics.best_week import overlay_preset_best_week, preset_best_week_label
 from src.analytics.consistency import (
     consistency_from_weekly,
@@ -49,6 +52,7 @@ from src.season_selection import format_season_span, metric_window_caption
 from src.stats_columns import display_stats_for_positions, rename_stats_for_display
 from src.ui_text import (
     best_week_fp_column_label,
+    page_title_suffix,
     section_h3,
     title_case_ui,
 )
@@ -107,7 +111,7 @@ def _resolve_detail_season(
     if controls["is_multi_season"] and len(detail_options) > 1:
         return int(
             st.selectbox(
-                "Season",
+                title_case_ui("Season"),
                 detail_options,
                 index=0,
                 key="profile_detail_season",
@@ -158,24 +162,34 @@ def _render_career_window_section(
         if cap:
             st.caption(cap)
 
-    peak_yr = peak_season_year(career)
+    # Peak is only meaningful with 2+ seasons in view; one sidebar year is trivially "peak".
+    show_peak_highlight = len(career) > 1
+    peak_yr = peak_season_year(career) if show_peak_highlight else None
     prime_years = prime_season_years(career)
     peak_prime_caption = format_peak_prime_caption(peak_yr, prime_years)
     if peak_prime_caption:
         st.caption(peak_prime_caption)
 
     if dst_view:
+        dst_note = (
+            " Orange = peak FP, green = prime, orange with green ring = both."
+            if show_peak_highlight
+            else " Green = prime season (career Z > 1) when applicable."
+        )
         st.caption(
             "One row per season for this team's defense. **Career Z** uses all seasons with "
-            "games played (min games filter does not apply to DST). "
-            "Orange = peak FP, green = prime, orange with green ring = both."
+            f"games played (min games filter does not apply to DST).{dst_note}"
         )
     else:
+        highlight_note = (
+            " See **Highlight** column and chart legend when a season is peak, prime, or both."
+            if show_peak_highlight
+            else " **Prime** seasons (career Z > 1) are highlighted in green when applicable."
+        )
         st.caption(
             "**Career Z** and peer gates use min games and position volume rules. "
             f"**Best week** uses weekly peaks for the sidebar preset "
-            f"({preset_best_week_label(preset)}). "
-            "See **Highlight** column and chart legend when a season is peak, prime, or both."
+            f"({preset_best_week_label(preset)}).{highlight_note}"
         )
 
     season_series = career["season"].astype(int)
@@ -214,10 +228,13 @@ def _render_career_window_section(
     st.markdown(section_h3("Fantasy points by season"))
     if dst_view and len(career) >= 15:
         st.caption("Long career span — axis shows every few seasons for readability.")
-    st.caption(
-        "Orange = peak FP · green = prime only · orange with green ring = **peak and prime** "
-        "same season."
-    )
+    if show_peak_highlight:
+        st.caption(
+            "Orange = peak FP · green = prime only · orange with green ring = **peak and prime** "
+            "same season."
+        )
+    elif prime_years:
+        st.caption("Green = prime season (career Z > 1).")
     season_fantasy_points_chart(
         career,
         dense=dst_view,
@@ -271,14 +288,25 @@ def _render_season_detail_section(
     c2.metric("FP per game", f"{fp / games:.1f}" if games else "—")
     if peer_z is not None:
         c3.metric("Peer Z (season)", f"{peer_z:.2f}")
+    surprise = None
+    if season_has_rankings(conn, detail_season):
+        surprise = season_surprise_for_entity(
+            conn, entity_id, detail_season, preset, min_games=min_games
+        )
+    used_c4 = False
+    if surprise:
+        c4.metric("Rank Δ vs draft", f"{surprise['rank_delta']:+d}")
+        used_c4 = True
     cz_row = career[career["season"].astype(int) == detail_season]
     if (
-        not cz_row.empty
+        not used_c4
+        and not cz_row.empty
         and "career_z" in cz_row.columns
         and bool(cz_row["peer_qualified"].iloc[0])
         and not np.isnan(cz_row["career_z"].iloc[0])
     ):
         c4.metric("Career Z (this season)", f"{cz_row['career_z'].iloc[0]:.2f}")
+    render_surprise_metrics_row(surprise)
 
     if not dst_view:
         splits = player_team_splits(conn, entity_id, detail_season, preset)
@@ -298,6 +326,15 @@ def _render_season_detail_section(
     if weekly.empty:
         st.info(f"No weekly rows for {detail_season}.")
         return
+
+    if season_has_rankings(conn, detail_season) and not dst_view:
+        weekly = enrich_weekly_with_surprise(
+            conn,
+            weekly,
+            detail_season,
+            preset,
+            str(season_row.get("position", primary_pos)),
+        )
 
     pos_label = str(season_row.get("position", primary_pos))
     p25, p75 = position_weekly_percentiles(
@@ -319,7 +356,11 @@ def _render_season_detail_section(
         st.caption(
             "Opponent not loaded yet — use sidebar **Repair database** or re-ingest this season."
         )
-    week_cols = ["week", "fantasy_points"] + [c for c in stat_cols if c in weekly.columns]
+    week_cols = ["week", "fantasy_points"]
+    for extra in ("weekly_ecr", "finish_rank", "rank_delta"):
+        if extra in weekly.columns:
+            week_cols.append(extra)
+    week_cols += [c for c in stat_cols if c in weekly.columns]
     if "opponent" in weekly.columns:
         week_cols.insert(1, "opponent")
     if not dst_view:
@@ -338,7 +379,7 @@ def _render_season_detail_section(
     )
 
 
-st.set_page_config(page_title="Player Profile | Fantasy Tracker", layout="wide")
+st.set_page_config(page_title=page_title_suffix("Player Profile"), layout="wide")
 
 _query_season = query_param_season()
 controls = render_sidebar(

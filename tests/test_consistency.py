@@ -2,7 +2,11 @@
 
 import pandas as pd
 
-from src.analytics.consistency import consistency_from_weekly, week_boom_bust_tags
+from src.analytics.consistency import (
+    _filter_qualified_weekly_rows,
+    consistency_from_weekly,
+    week_boom_bust_tags,
+)
 
 
 def test_consistency_boom_bust_rates():
@@ -12,6 +16,22 @@ def test_consistency_boom_bust_rates():
     assert metrics["boom_rate"] == 0.25
     assert metrics["bust_rate"] == 0.25
     assert metrics["worst_week_fp"] == 5.0
+
+
+def test_filter_qualified_weekly_rows_drops_low_usage():
+    df = pd.DataFrame(
+        {
+            "fp": [2.0, 15.0, 25.0],
+            "position": ["RB", "RB", "RB"],
+            "carries": [1, 10, 12],
+            "passing_attempts": [0, 0, 0],
+            "targets": [0, 0, 0],
+            "receptions": [0, 0, 0],
+        }
+    )
+    qualified = _filter_qualified_weekly_rows(df)
+    assert len(qualified) == 2
+    assert qualified["fp"].tolist() == [15.0, 25.0]
 
 
 def test_week_boom_bust_tags():

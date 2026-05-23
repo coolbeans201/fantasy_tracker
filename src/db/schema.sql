@@ -173,7 +173,45 @@ CREATE TABLE IF NOT EXISTS team_defense_season (
     PRIMARY KEY (team, season)
 );
 
+-- FantasyPros expert consensus (ECR) via nflverse / DynastyProcess
+CREATE TABLE IF NOT EXISTS ecr_draft (
+    player_id VARCHAR NOT NULL,
+    season INTEGER NOT NULL,
+    position VARCHAR NOT NULL,
+    ecr_rank INTEGER NOT NULL,
+    ecr_sd DOUBLE,
+    player_name VARCHAR,
+    team VARCHAR,
+    fantasypros_id VARCHAR,
+    scrape_date DATE,
+    PRIMARY KEY (player_id, season, position)
+);
+
+CREATE TABLE IF NOT EXISTS ecr_weekly (
+    player_id VARCHAR NOT NULL,
+    season INTEGER NOT NULL,
+    week INTEGER NOT NULL,
+    position VARCHAR NOT NULL,
+    ecr_rank INTEGER NOT NULL,
+    ecr_sd DOUBLE,
+    player_name VARCHAR,
+    team VARCHAR,
+    fantasypros_id VARCHAR,
+    scrape_date DATE,
+    PRIMARY KEY (player_id, season, week, position)
+);
+
+CREATE TABLE IF NOT EXISTS rankings_manifest (
+    ingested_at TIMESTAMP NOT NULL,
+    draft_rows INTEGER,
+    weekly_rows INTEGER,
+    seasons_min INTEGER,
+    seasons_max INTEGER
+);
+
 CREATE INDEX IF NOT EXISTS idx_weekly_season ON weekly_stats(season);
 CREATE INDEX IF NOT EXISTS idx_season_pos ON season_stats(season, position);
 CREATE INDEX IF NOT EXISTS idx_season_team ON season_team_stats(season, team);
 CREATE INDEX IF NOT EXISTS idx_dst_season ON team_defense_season(season);
+CREATE INDEX IF NOT EXISTS idx_ecr_draft_season ON ecr_draft(season, position);
+CREATE INDEX IF NOT EXISTS idx_ecr_weekly_season ON ecr_weekly(season, week, position);

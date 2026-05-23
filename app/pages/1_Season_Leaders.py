@@ -5,9 +5,19 @@ import streamlit as st
 from app.components import get_db, render_sidebar
 from app.leader_navigation import render_leaders_table
 from src.analytics.metrics import add_fp_per_game
+from app.surprise_ui import render_surprise_highlights
 from src.analytics.peer_z import enrich_leaders_dataframe
+from src.analytics.surprise import (
+    compute_season_surprise_frame,
+    enrich_leaders_with_surprise,
+)
 from src.db.connection import db_exists
-from src.db.queries import season_leaders, season_leaders_window, teams_for_season
+from src.db.queries import (
+    season_has_rankings,
+    season_leaders,
+    season_leaders_window,
+    teams_for_season,
+)
 from src.season_selection import format_season_label, format_season_span, metric_window_caption
 from src.entities import make_dst_entity_id
 from src.positions import (
@@ -16,10 +26,14 @@ from src.positions import (
     is_dst_only_selection,
     is_kicker_only_selection,
 )
-from src.stats_columns import display_stats_for_positions, rename_stats_for_display
-from src.ui_text import title_case_ui
+from src.stats_columns import (
+    column_display_label,
+    display_stats_for_positions,
+    rename_stats_for_display,
+)
+from src.ui_text import page_title_suffix, title_case_ui
 
-st.set_page_config(page_title="Season Leaders | Fantasy Tracker", layout="wide")
+st.set_page_config(page_title=page_title_suffix("Season Leaders"), layout="wide")
 
 controls = render_sidebar()
 st.title("Season Leaders")
@@ -66,7 +80,7 @@ if is_window:
         st.caption(cap)
 
 st.multiselect(
-    "Position",
+    title_case_ui("Position"),
     controls["fantasy_positions"],
     key="leaders_positions",
     on_change=_coerce_leader_positions,
@@ -92,7 +106,7 @@ elif dst_view:
     use_splits = False
 else:
     teams = ["All"] + teams_for_season(conn, season)
-    team_filter = st.selectbox("Team", teams)
+    team_filter = st.selectbox(title_case_ui("Team"), teams)
     use_splits = team_filter != "All"
 
 if is_window:
@@ -117,10 +131,29 @@ if df.empty:
     )
     st.stop()
 
+surprise_all = None
 if not is_window:
     df = enrich_leaders_dataframe(
         conn, df, season, preset, positions, min_games, era_z=controls["era_z"]
     )
+    if season_has_rankings(conn, season):
+        surprise_all = compute_season_surprise_frame(
+            conn,
+            season,
+            preset,
+            min_games=min_games,
+            include_dst=dst_view,
+        )
+        if not surprise_all.empty:
+            df = enrich_leaders_with_surprise(
+                conn,
+                df,
+                season,
+                preset,
+                min_games=min_games,
+                include_dst=dst_view,
+                surprise_df=surprise_all,
+            )
 elif controls["era_z"]:
     st.caption("Peer Z (era) is not shown for multi-season window leaders.")
 df = add_fp_per_game(df)
@@ -130,16 +163,19 @@ if dst_view:
 elif "player_id" in df.columns:
     df["entity_id"] = df["player_id"]
 
-sort_options = ["FP per game", "Fantasy points"]
+_SORT_OPTIONS: list[tuple[str, str]] = [
+    (column_display_label("fp_per_game"), "fp_per_game"),
+    (column_display_label("fantasy_points"), "fantasy_points"),
+]
 if not is_window:
-    sort_options.append("Peer Z (season)")
+    _SORT_OPTIONS.append((column_display_label("peer_z_season"), "peer_z_season"))
+    if surprise_all is not None and not surprise_all.empty and "rank_delta" in df.columns:
+        _SORT_OPTIONS.append((column_display_label("rank_delta"), "rank_delta"))
+_sort_labels = [label for label, _ in _SORT_OPTIONS]
+_sort_map = dict(_SORT_OPTIONS)
 default_sort = 0
-sort_by = st.selectbox("Sort by", sort_options, index=default_sort)
-sort_col = {
-    "FP per game": "fp_per_game",
-    "Fantasy points": "fantasy_points",
-    "Peer Z (season)": "peer_z_season",
-}[sort_by]
+sort_by = st.selectbox(title_case_ui("Sort by"), _sort_labels, index=default_sort)
+sort_col = _sort_map[sort_by]
 if sort_col in df.columns:
     df = df.sort_values(sort_col, ascending=False, na_position="last")
 
@@ -169,6 +205,9 @@ else:
     ]
     if "peer_z_era" in df.columns:
         display_cols.append("peer_z_era")
+    for col in ("draft_ecr", "finish_rank", "rank_delta"):
+        if col in df.columns:
+            display_cols.append(col)
     display_cols += stat_cols
     column_labels = {}
 
@@ -196,6 +235,13 @@ elif is_kicker_only_selection(positions):
 else:
     stat_hint = "Offensive stats use the sidebar scoring preset. Default sort is FP per game."
 st.caption(stat_hint)
+if surprise_all is not None and not surprise_all.empty:
+    if positions:
+        expanded = [p for p in positions if p in surprise_all["position"].unique()]
+        if expanded:
+            surprise_all = surprise_all[surprise_all["position"].isin(expanded)]
+    with st.expander(title_case_ui("Winners & losers vs draft rank"), expanded=False):
+        render_surprise_highlights(surprise_all, season=season)
 table_df = df.reset_index(drop=True)
 shown = _rename_leader_table(table_df[display_cols], column_labels)
 if "entity_id" in table_df.columns:

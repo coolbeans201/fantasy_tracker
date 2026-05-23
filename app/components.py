@@ -48,11 +48,12 @@ from src.season_selection import (
     sidebar_window_caption,
 )
 from src.settings import get_min_games_default
+from src.ui_text import title_case_ui
 
 _SIDEBAR_MODE_LABELS = {
-    SEASON_MODE_SINGLE: "Single season",
-    SEASON_MODE_RANGE: "Season range",
-    SEASON_MODE_PICK: "Pick seasons",
+    SEASON_MODE_SINGLE: "Single Season",
+    SEASON_MODE_RANGE: "Season Range",
+    SEASON_MODE_PICK: "Pick Seasons",
 }
 _SIDEBAR_LABEL_TO_MODE = {v: k for k, v in _SIDEBAR_MODE_LABELS.items()}
 
@@ -148,7 +149,9 @@ def render_sidebar(
         st.sidebar.warning("No seasons ingested.")
         return _empty_sidebar_controls()
 
-    preset = st.sidebar.selectbox("Scoring", list(DISPLAY_PRESETS.keys()), index=1)
+    preset = st.sidebar.selectbox(
+        title_case_ui("Scoring"), list(DISPLAY_PRESETS.keys()), index=1
+    )
 
     if "sidebar_season_mode" not in st.session_state:
         st.session_state.sidebar_season_mode = SEASON_MODE_SINGLE
@@ -158,7 +161,7 @@ def render_sidebar(
     _radio_index = _mode_keys.index(_prev_mode) if _prev_mode in _mode_keys else 0
 
     mode_label = st.sidebar.radio(
-        "Season view",
+        title_case_ui("Season view"),
         list(_SIDEBAR_MODE_LABELS.values()),
         index=_radio_index,
         horizontal=True,
@@ -172,7 +175,9 @@ def render_sidebar(
 
     if mode == SEASON_MODE_SINGLE:
         season_index = allowed.index(season_default)
-        single_year = st.sidebar.selectbox("Season", allowed, index=season_index)
+        single_year = st.sidebar.selectbox(
+            title_case_ui("Season"), allowed, index=season_index
+        )
         window_seasons = resolve_season_window(
             allowed, SEASON_MODE_SINGLE, single_year=int(single_year)
         )
@@ -181,13 +186,13 @@ def render_sidebar(
         default_hi = max(season_default, allowed[0])
         c_from, c_to = st.sidebar.columns(2)
         range_start = c_from.selectbox(
-            "From",
+            title_case_ui("From"),
             ingested_asc,
             index=ingested_asc.index(min(default_lo, default_hi)),
             key="sidebar_range_start",
         )
         range_end = c_to.selectbox(
-            "To",
+            title_case_ui("To"),
             ingested_asc,
             index=ingested_asc.index(max(default_lo, default_hi)),
             key="sidebar_range_end",
@@ -201,7 +206,7 @@ def render_sidebar(
     else:
         pick_default = allowed[: min(5, len(allowed))]
         picked = st.sidebar.multiselect(
-            "Seasons",
+            title_case_ui("Seasons"),
             options=allowed,
             default=pick_default,
             key="sidebar_season_pick",
@@ -222,15 +227,18 @@ def render_sidebar(
 
     default_min = get_min_games_default()
     min_games = st.sidebar.slider(
-        "Min games played",
+        title_case_ui("Min games played"),
         min_value=1,
         max_value=17,
         value=default_min,
         help=f"Default {default_min} (config/settings.yaml) — half-season threshold",
     )
-    era_z = st.sidebar.checkbox("Show peer Z (all-time era)", value=False)
+    era_z = st.sidebar.checkbox(title_case_ui("Show peer Z (all-time era)"), value=False)
 
-    if st.sidebar.button("Repair database", help="Rebuild player index and refresh games played."):
+    if st.sidebar.button(
+        title_case_ui("Repair database"),
+        help="Rebuild player index and refresh games played.",
+    ):
         run_database_maintenance()
         st.sidebar.success("Database maintenance finished.")
         st.rerun()

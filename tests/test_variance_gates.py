@@ -4,7 +4,32 @@ import pandas as pd
 
 import numpy as np
 
-from src.analytics.variance import compute_career_z, qualifies_for_peer_z
+from src.analytics.variance import (
+    compute_career_z,
+    qualifies_for_peer_z,
+    qualifies_weekly_volume,
+)
+
+
+def test_weekly_volume_gate_prorates_season_threshold():
+    starter = pd.Series(
+        {
+            "position": "RB",
+            "carries": 12,
+            "passing_attempts": 0,
+            "targets": 0,
+        }
+    )
+    scrub = pd.Series(
+        {
+            "position": "RB",
+            "carries": 2,
+            "passing_attempts": 0,
+            "targets": 0,
+        }
+    )
+    assert qualifies_weekly_volume(starter) is True
+    assert qualifies_weekly_volume(scrub) is False
 
 
 def test_wr_gate_uses_targets_not_receptions():

@@ -2,6 +2,8 @@
 
 from __future__ import annotations
 
+import re
+
 # Lowercase token -> display form (abbreviations and fantasy terms)
 _SPECIAL_WORDS: dict[str, str] = {
     "z": "Z",
@@ -22,30 +24,96 @@ _SPECIAL_WORDS: dict[str, str] = {
     "tds": "TDs",
     "int": "INT",
     "csv": "CSV",
+    "ecr": "ECR",
+    "σ": "σ",
+    "δ": "Δ",
 }
 
+# Lowercase in titles unless first/last word (or after hyphen chunk start)
+_SMALL_WORDS: frozenset[str] = frozenset(
+    {
+        "a",
+        "an",
+        "the",
+        "and",
+        "but",
+        "or",
+        "for",
+        "nor",
+        "on",
+        "at",
+        "to",
+        "from",
+        "by",
+        "vs",
+        "in",
+        "of",
+        "as",
+        "per",
+        "with",
+    }
+)
 
-def _cap_word(word: str) -> str:
-    if word.startswith("(") and word.endswith(")") and len(word) > 2:
-        return "(" + _cap_word(word[1:-1]) + ")"
+
+def _cap_subword(word: str, *, force: bool) -> str:
+    if not word:
+        return word
+    if len(word) == 1 and not word.isalnum():
+        return word
+    if word.startswith("(") and ")" in word:
+        inner = word[1 : word.index(")")]
+        rest = word[word.index(")") :]
+        return "(" + _cap_subword(inner, force=True) + rest
     key = word.lower()
     if key in _SPECIAL_WORDS:
         return _SPECIAL_WORDS[key]
-    if word.isupper() and len(word) <= 5:
+    if not force and key in _SMALL_WORDS:
+        return key
+    if word.isupper() and len(word) <= 6:
         return word
-    return word.capitalize()
+    if word.isdigit():
+        return word
+    return word[:1].upper() + word[1:].lower() if word else word
+
+
+def _cap_word(word: str, *, index: int, total: int) -> str:
+    force = index == 0 or index == total - 1
+    if "-" in word:
+        parts = word.split("-")
+        return "-".join(
+            _cap_subword(part, force=force or (i == 0) or (i == len(parts) - 1))
+            for i, part in enumerate(parts)
+        )
+    return _cap_subword(word, force=force)
 
 
 def title_case_ui(text: str) -> str:
-    """Title-case a UI label (every word capitalized; preserves abbreviations)."""
+    """Title-case a UI label; keeps short prepositions lowercase; preserves abbreviations."""
     if not text or not str(text).strip():
         return text
-    return " ".join(_cap_word(w) for w in str(text).split())
+    raw = str(text).strip()
+    # Preserve simple parenthetical segments: "Season detail (2023)"
+    if "(" in raw and raw.endswith(")"):
+        m = re.match(r"^(.+?)\s*(\([^)]+\))\s*$", raw)
+        if m:
+            return f"{title_case_ui(m.group(1).strip())} {m.group(2)}"
+    words = raw.split()
+    return " ".join(_cap_word(w, index=i, total=len(words)) for i, w in enumerate(words))
 
 
 def section_h3(title: str) -> str:
     """Markdown H3 section heading with consistent title casing."""
     return f"### {title_case_ui(title)}"
+
+
+def bold_heading(title: str) -> str:
+    """Bold markdown subheading with consistent title casing."""
+    return f"**{title_case_ui(title)}**"
+
+
+def page_title_suffix(page_name: str) -> str:
+    """Browser tab title: `Page Name | Fantasy Tracker`."""
+    return f"{title_case_ui(page_name)} | Fantasy Tracker"
 
 
 _BEST_WEEK_SCORING_LABELS: dict[str, str] = {

@@ -646,3 +646,137 @@ def teams_for_seasons(conn: duckdb.DuckDBPyConnection, seasons: list[int]) -> li
         [*seasons, *seasons],
     ).fetchall()
     return [str(r[0]) for r in rows]
+
+
+def has_rankings_data(conn: duckdb.DuckDBPyConnection) -> bool:
+    """True if any draft ECR rows were ingested (not necessarily every stats season)."""
+    try:
+        row = conn.execute("SELECT COUNT(*) FROM ecr_draft").fetchone()
+        return bool(row and row[0] and int(row[0]) > 0)
+    except duckdb.Error:
+        return False
+
+
+def list_rankings_seasons(conn: duckdb.DuckDBPyConnection) -> list[int]:
+    """Seasons with enough preseason draft ECR rows for beat-draft-rank features."""
+    from src.analytics.variance import load_thresholds
+
+    if not has_rankings_data(conn):
+        return []
+    min_rows = int(load_thresholds().get("min_ecr_rows_per_season", 50))
+    try:
+        rows = conn.execute(
+            """
+            SELECT season FROM ecr_draft
+            GROUP BY season
+            HAVING COUNT(*) >= ?
+            ORDER BY season
+            """,
+            [min_rows],
+        ).fetchall()
+        return [int(r[0]) for r in rows]
+    except duckdb.Error:
+        return []
+
+
+def season_has_rankings(conn: duckdb.DuckDBPyConnection, season: int) -> bool:
+    """True if enough draft ECR exists for this season to show beat-draft-rank UI."""
+    from src.analytics.variance import load_thresholds
+
+    if not has_rankings_data(conn):
+        return False
+    min_rows = int(load_thresholds().get("min_ecr_rows_per_season", 50))
+    try:
+        row = conn.execute(
+            "SELECT COUNT(*) FROM ecr_draft WHERE season = ?",
+            [int(season)],
+        ).fetchone()
+        return bool(row and row[0] and int(row[0]) >= min_rows)
+    except duckdb.Error:
+        return False
+
+
+def rankings_seasons_in_window(
+    conn: duckdb.DuckDBPyConnection,
+    seasons: list[int],
+) -> list[int]:
+    """Intersection of sidebar seasons and seasons with draft ECR."""
+    available = set(list_rankings_seasons(conn))
+    return sorted(int(s) for s in seasons if int(s) in available)
+
+
+def rankings_manifest_summary(conn: duckdb.DuckDBPyConnection) -> dict | None:
+    try:
+        row = conn.execute(
+            """
+            SELECT ingested_at, draft_rows, weekly_rows, seasons_min, seasons_max
+            FROM rankings_manifest
+            ORDER BY ingested_at DESC
+            LIMIT 1
+            """
+        ).fetchone()
+    except duckdb.Error:
+        return None
+    if not row:
+        return None
+    return {
+        "ingested_at": row[0],
+        "draft_rows": row[1],
+        "weekly_rows": row[2],
+        "seasons_min": row[3],
+        "seasons_max": row[4],
+    }
+
+
+def load_ecr_draft(
+    conn: duckdb.DuckDBPyConnection,
+    season: int,
+    position: str | None = None,
+) -> pd.DataFrame:
+    query = """
+        SELECT player_id, season, position, ecr_rank, player_name, team
+        FROM ecr_draft
+        WHERE season = ?
+    """
+    params: list = [season]
+    if position:
+        query += " AND position = ?"
+        params.append(position)
+    return _fetch_df(conn, query, params)
+
+
+def load_ecr_weekly(
+    conn: duckdb.DuckDBPyConnection,
+    season: int,
+    position: str | None = None,
+) -> pd.DataFrame:
+    query = """
+        SELECT player_id, season, week, position, ecr_rank, player_name, team
+        FROM ecr_weekly
+        WHERE season = ?
+    """
+    params: list = [season]
+    if position:
+        query += " AND position = ?"
+        params.append(position)
+    return _fetch_df(conn, query, params)
+
+
+def weekly_stats_for_surprise(
+    conn: duckdb.DuckDBPyConnection,
+    season: int,
+    preset: str,
+    position: str | None,
+) -> pd.DataFrame:
+    """Weekly FP rows for building in-season rank surprise."""
+    fp_expr = fantasy_points_sql_expr(preset)
+    query = f"""
+        SELECT player_id, season, week, position, games, {fp_expr} AS fantasy_points
+        FROM weekly_stats
+        WHERE season = ? AND season_type = 'REG'
+    """
+    params: list = [season]
+    if position:
+        query += " AND position = ?"
+        params.append(position)
+    return _fetch_df(conn, query, params)

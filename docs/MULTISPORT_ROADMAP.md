@@ -98,6 +98,7 @@ Avoid one table with hundreds of nullable columns for all sports.
 
 ### Platform APIs (not primary warehouse)
 - **Yahoo YFPY** / **ESPN API** — league-scored fantasy points, OAuth, league-specific. Useful later for “my league settings,” not for historical open research across all seasons.
+- **FantasyPros ECR** (`ingest_rankings.py`) — NFL-only expectations layer today; other sports would need their own rank/ADP source if added later.
 
 **There is no single nflverse-quality package for all sports.** Expect per-sport ingest scripts and more upstream breakage than NFL.
 
@@ -132,8 +133,9 @@ Optional: unified CLI `ingest.py --sport mlb --season 2024`
 ## Out of scope (initial multi-sport v1)
 
 - Cross-sport Compare or leaderboards  
-- Custom league / platform scoring import  
 - Playoffs, live in-season sync, play-by-play warehouses  
+
+**Planned after Phase 0:** [Custom scoring](CUSTOM_SCORING.md) — user-defined presets on ingested stats only (not league/platform import).  
 - FP per attempt / carry / target (see NFL enhancement doc)  
 - IDP, roto-only baseball without a points preset  
 

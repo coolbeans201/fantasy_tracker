@@ -4,7 +4,7 @@ from __future__ import annotations
 
 import streamlit as st
 
-from src.ui_text import section_h3
+from src.ui_text import section_h3, title_case_ui
 
 
 def render_consistency_panel(
@@ -39,7 +39,7 @@ def render_consistency_panel(
         ),
     )
     c2.metric(
-        "Boom rate",
+        title_case_ui("Boom rate"),
         f"{boom * 100:.0f}%" if boom is not None else "—",
         help=(
             "Share of weeks at or above the 75th-percentile weekly FP "
@@ -47,7 +47,7 @@ def render_consistency_panel(
         ),
     )
     c3.metric(
-        "Bust rate",
+        title_case_ui("Bust rate"),
         f"{bust * 100:.0f}%" if bust is not None else "—",
         help=(
             "Share of weeks at or below the 25th-percentile weekly FP "
@@ -55,7 +55,7 @@ def render_consistency_panel(
         ),
     )
     c4.metric(
-        "Worst week",
+        title_case_ui("Worst week"),
         f"{worst:.1f}" if worst is not None else "—",
         help="Lowest single-week fantasy point total in the regular season.",
     )
@@ -66,6 +66,8 @@ def render_consistency_panel(
     )
 
     st.caption(
-        "Boom and bust thresholds come from the same-season weekly distribution "
-        f"for {position_label or 'this position'} — not from the sidebar scoring preset alone."
+        "Boom/bust thresholds use P25/P75 of **qualified** player-weeks "
+        f"for {position_label or 'this position'} in {season} "
+        "(weekly volume gates match peer Z rules, prorated per game). "
+        "DST uses all team-weeks."
     )

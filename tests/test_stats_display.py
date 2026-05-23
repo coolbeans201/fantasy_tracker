@@ -16,6 +16,7 @@ def test_column_display_label_for_metadata_columns():
     assert column_display_label("fantasy_points") == "Fantasy Points"
     assert column_display_label("player_name") == "Player"
     assert column_display_label("peer_z_season") == "Peer Z (Season)"
+    assert column_display_label("rank_delta") == "Rank Δ"
 
 
 def test_rename_stats_for_display_all_columns():

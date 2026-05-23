@@ -4,8 +4,14 @@
 # Volume gates below are configurable heuristics (not from an external study).
 # Goal: exclude low-usage players from peer cohorts so Z-scores are meaningful.
 # Tune in this file as you validate against real seasons.
+#
+# Weekly boom/bust P25/P75 uses the same gates prorated per week (season gate / 17 REG weeks)
+# so only player-weeks with starter-like usage count toward the position distribution.
 
 min_qualified_peers: 10
+
+# Minimum preseason ECR rows stored for a season before beat-draft-rank UI appears.
+min_ecr_rows_per_season: 50
 
 volume_gates:
   QB:

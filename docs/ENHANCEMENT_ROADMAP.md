@@ -1,6 +1,18 @@
 # Fantasy Tracker Enhancement Roadmap (Polish + Analytics)
 
-Saved for implementation in a future session. Focus: **polish** existing pages, **deeper fantasy analytics** on data we already ingest, and a **multi-season window** for continual views (range or hand-picked years). No custom scoring, no new nflverse fields, no CI requirement.
+Saved for implementation in a future session. Focus: **polish** existing pages, **deeper fantasy analytics** on data we already ingest, and a **multi-season window** for continual views (range or hand-picked years). Custom scoring is planned in [CUSTOM_SCORING.md](CUSTOM_SCORING.md). No new nflverse fields; no CI requirement.
+
+---
+
+## Expectations vs draft rank (done — NFL)
+
+FantasyPros expert consensus (ECR) via `nflreadpy.load_ff_rankings()`:
+
+- Ingest: `scripts/ingest_rankings.py` → `ecr_draft`, `ecr_weekly`
+- **Season:** draft ECR vs volume-qualified finish rank (`rank_delta` = draft ECR − finish; positive = beat draft rank)
+- **Weekly:** weekly ECR vs qualified weekly finish on Profile
+- UI: Season Leaders (**Winners & losers**, sort by rank Δ), Profile, Compare (single season)
+- Attribution: FantasyPros / DynastyProcess; ranks are not the same as sidebar scoring presets
 
 ---
 
@@ -18,9 +30,10 @@ flowchart LR
   profile --> analytics
 ```
 
-**Out of scope**
-- Custom league / scoring builders
+**Out of scope (this doc)**
 - Playoffs, live weeks, snap counts, red-zone, or other new nflverse columns
+
+**Planned separately:** [Custom scoring](CUSTOM_SCORING.md) — user-defined presets on current stats (no league import).
 - FP per attempt / FP per carry / FP per target (too granular for typical fantasy use)
 - GitHub Actions / CI (not needed at current project maturity)
 
@@ -194,7 +207,7 @@ Many analytics were designed for **one season at a time**. Document behavior in 
 ## Deferred
 
 - Playoff tables, IDP, strength of schedule
-- Custom scoring / platform importers
+- Custom scoring — see [CUSTOM_SCORING.md](CUSTOM_SCORING.md) (no league import)
 - FP per attempt / carry / target
 - CI / GitHub Actions
 - Multi-season concatenated weekly timeline; window-level peer Z without clear labeling
