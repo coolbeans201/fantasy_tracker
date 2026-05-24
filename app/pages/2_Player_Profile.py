@@ -129,7 +129,8 @@ def _render_career_window_section(
     entity_id: str,
     primary_pos: str,
     dst_view: bool,
-    preset: str,
+    conn,
+    preset_key: str,
     min_games: int,
     controls: dict,
     stat_cols: list[str],
@@ -189,7 +190,7 @@ def _render_career_window_section(
         st.caption(
             "**Career Z** and peer gates use min games and position volume rules. "
             f"**Best week** uses weekly peaks for the sidebar preset "
-            f"({preset_best_week_label(preset)}).{highlight_note}"
+            f"({preset_best_week_label(preset_key, conn)}).{highlight_note}"
         )
 
     season_series = career["season"].astype(int)
@@ -251,7 +252,7 @@ def _render_season_detail_section(
     season_row: pd.Series,
     career: pd.DataFrame,
     dst_view: bool,
-    preset: str,
+    preset_key: str,
     min_games: int,
     primary_pos: str,
     stat_cols: list[str],
@@ -268,7 +269,7 @@ def _render_season_detail_section(
     peer_df = peer_df_for_entity_season(
         conn,
         detail_season,
-        preset,
+        preset_key,
         season_row["position"],
         min_games,
     )
@@ -291,7 +292,7 @@ def _render_season_detail_section(
     surprise = None
     if season_has_rankings(conn, detail_season):
         surprise = season_surprise_for_entity(
-            conn, entity_id, detail_season, preset, min_games=min_games
+            conn, entity_id, detail_season, preset_key, min_games=min_games
         )
     used_c4 = False
     if surprise:
@@ -309,7 +310,7 @@ def _render_season_detail_section(
     render_surprise_metrics_row(surprise)
 
     if not dst_view:
-        splits = player_team_splits(conn, entity_id, detail_season, preset)
+        splits = player_team_splits(conn, entity_id, detail_season, preset_key)
         if len(splits) > 1:
             st.markdown(section_h3(f"Team splits ({detail_season})"))
             split_cols = ["team", "games", "fantasy_points", "fp_per_game"] + [
@@ -322,7 +323,7 @@ def _render_season_detail_section(
                 hide_index=True,
             )
 
-    weekly = entity_weekly(conn, entity_id, detail_season, preset)
+    weekly = entity_weekly(conn, entity_id, detail_season, preset_key)
     if weekly.empty:
         st.info(f"No weekly rows for {detail_season}.")
         return
@@ -332,13 +333,13 @@ def _render_season_detail_section(
             conn,
             weekly,
             detail_season,
-            preset,
+            preset_key,
             str(season_row.get("position", primary_pos)),
         )
 
     pos_label = str(season_row.get("position", primary_pos))
     p25, p75 = position_weekly_percentiles(
-        conn, detail_season, season_row["position"], preset
+        conn, detail_season, season_row["position"], preset_key
     )
     consistency_metrics = consistency_from_weekly(weekly, p25=p25, p75=p75)
     render_consistency_panel(
@@ -413,9 +414,9 @@ if not entity_id:
     st.stop()
 
 dst_view = is_dst_entity(entity_id)
-preset = controls["preset"]
+preset_key = controls["preset_key"]
 min_games = controls["min_games"]
-seasons_df = entity_seasons(conn, entity_id, preset)
+seasons_df = entity_seasons(conn, entity_id, preset_key)
 
 if seasons_df.empty:
     st.warning("No season data for this selection.")
@@ -426,8 +427,8 @@ _entity_seasons = sorted(
 )
 _sync_profile_sidebar_seasons(entity_id, _entity_seasons, _query_season)
 
-weekly_all = entity_all_weekly(conn, entity_id, preset)
-seasons_df = overlay_preset_best_week(seasons_df, weekly_all, preset, dst=dst_view)
+weekly_all = entity_all_weekly(conn, entity_id, preset_key)
+seasons_df = overlay_preset_best_week(seasons_df, weekly_all, preset_key, dst=dst_view)
 
 if dst_view:
     team = dst_team_from_entity(entity_id)
@@ -461,7 +462,7 @@ if career.empty:
 
 if controls["era_z"] and not dst_view:
     all_seasons = season_stats_for_peer_analysis(
-        conn, season=None, preset=preset, min_games=min_games
+        conn, season=None, preset=preset_key, min_games=min_games
     )
     career = add_peer_z_era_column(career, all_seasons, min_games=min_games)
 
@@ -491,7 +492,8 @@ _render_career_window_section(
     entity_id=entity_id,
     primary_pos=primary_pos,
     dst_view=dst_view,
-    preset=preset,
+    conn=conn,
+    preset_key=preset_key,
     min_games=min_games,
     controls=controls,
     stat_cols=stat_cols,
@@ -508,7 +510,7 @@ if detail_season is not None:
             season_row=match.iloc[0],
             career=career,
             dst_view=dst_view,
-            preset=preset,
+            preset_key=preset_key,
             min_games=min_games,
             primary_pos=primary_pos,
             stat_cols=stat_cols,

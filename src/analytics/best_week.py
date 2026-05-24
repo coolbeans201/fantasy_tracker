@@ -4,7 +4,10 @@ from __future__ import annotations
 
 import pandas as pd
 
+import duckdb
+
 from src.scoring.calc import DISPLAY_PRESETS, resolve_preset
+from src.scoring.preset_store import is_custom_preset_key, preset_label
 
 
 def best_week_by_season(weekly_df: pd.DataFrame) -> pd.DataFrame:
@@ -39,22 +42,35 @@ def best_week_by_season(weekly_df: pd.DataFrame) -> pd.DataFrame:
     return pd.DataFrame(rows)
 
 
-def preset_best_week_label(preset_display: str, *, dst: bool = False, kicker: bool = False) -> str:
+def preset_best_week_label(
+    preset_key: str,
+    conn: duckdb.DuckDBPyConnection | None = None,
+    *,
+    dst: bool = False,
+    kicker: bool = False,
+) -> str:
     if dst:
         return "ESPN D/ST"
     if kicker:
         return "ESPN Kicker"
-    key = resolve_preset(preset_display)
+    if conn is not None and is_custom_preset_key(preset_key):
+        return preset_label(conn, preset_key)
+    if preset_key in DISPLAY_PRESETS:
+        return preset_key
+    try:
+        key = resolve_preset(preset_key)
+    except ValueError:
+        return preset_key
     for label, k in DISPLAY_PRESETS.items():
         if k == key:
             return label
-    return preset_display
+    return preset_key
 
 
 def overlay_preset_best_week(
     seasons_df: pd.DataFrame,
     weekly_df: pd.DataFrame,
-    preset_display: str,
+    preset_key: str,
     *,
     dst: bool = False,
 ) -> pd.DataFrame:
@@ -73,7 +89,9 @@ def overlay_preset_best_week(
         pos = str(row.get("position", "")).upper()
         if pos == "K":
             return "kicker"
-        return resolve_preset(preset_display)
+        if is_custom_preset_key(preset_key):
+            return "custom"
+        return resolve_preset(preset_key)
 
     if not out.empty:
         out["best_week_scoring"] = out.apply(_scoring_key, axis=1)

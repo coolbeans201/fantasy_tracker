@@ -215,3 +215,13 @@ CREATE INDEX IF NOT EXISTS idx_season_team ON season_team_stats(season, team);
 CREATE INDEX IF NOT EXISTS idx_dst_season ON team_defense_season(season);
 CREATE INDEX IF NOT EXISTS idx_ecr_draft_season ON ecr_draft(season, position);
 CREATE INDEX IF NOT EXISTS idx_ecr_weekly_season ON ecr_weekly(season, week, position);
+
+CREATE TABLE IF NOT EXISTS scoring_presets (
+    preset_id VARCHAR PRIMARY KEY,
+    name VARCHAR NOT NULL,
+    sport VARCHAR NOT NULL DEFAULT 'nfl',
+    offense_weights VARCHAR NOT NULL,
+    created_at TIMESTAMP NOT NULL
+);
+
+CREATE UNIQUE INDEX IF NOT EXISTS idx_scoring_presets_name ON scoring_presets(sport, name);

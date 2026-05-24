@@ -36,7 +36,6 @@ from src.db.queries import search_fantasy_entities
 
 from src.positions import FANTASY_POSITIONS, leader_position_options
 
-from src.scoring.calc import DISPLAY_PRESETS
 
 from src.season_selection import (
     SEASON_MODE_PICK,
@@ -48,6 +47,7 @@ from src.season_selection import (
     sidebar_window_caption,
 )
 from src.settings import get_min_games_default
+from app.scoring_ui import render_scoring_sidebar
 from src.ui_text import title_case_ui
 
 _SIDEBAR_MODE_LABELS = {
@@ -120,6 +120,7 @@ def _empty_sidebar_controls() -> dict:
         "season_mode": SEASON_MODE_SINGLE,
         "is_multi_season": False,
         "preset": "Half-PPR",
+        "preset_key": "half_ppr",
         "era_z": False,
         "min_games": get_min_games_default(),
         "fantasy_positions": leader_position_options(),
@@ -140,7 +141,12 @@ def render_sidebar(
         st.sidebar.warning("No database found. Run ingest first.")
         return _empty_sidebar_controls()
 
-    ingested = list_ingested_seasons()
+    conn = get_db()
+    if conn is None:
+        st.sidebar.warning("No database found. Run ingest first.")
+        return _empty_sidebar_controls()
+
+    ingested = list_ingested_seasons(conn)
     if season_options is not None:
         allowed = sorted(set(season_options) & set(ingested), reverse=True)
     else:
@@ -149,9 +155,7 @@ def render_sidebar(
         st.sidebar.warning("No seasons ingested.")
         return _empty_sidebar_controls()
 
-    preset = st.sidebar.selectbox(
-        title_case_ui("Scoring"), list(DISPLAY_PRESETS.keys()), index=1
-    )
+    preset_label, preset_key = render_scoring_sidebar(conn)
 
     if "sidebar_season_mode" not in st.session_state:
         st.session_state.sidebar_season_mode = SEASON_MODE_SINGLE
@@ -249,7 +253,8 @@ def render_sidebar(
         "seasons": window_seasons,
         "season_mode": mode,
         "is_multi_season": is_multi_season_window(window_seasons),
-        "preset": preset,
+        "preset": preset_label,
+        "preset_key": preset_key,
         "era_z": era_z,
         "min_games": min_games,
         "fantasy_positions": leader_position_options(),
@@ -440,7 +445,7 @@ def cached_connection():
 
         return None
 
-    return get_connection(read_only=True)
+    return get_connection()
 
 
 

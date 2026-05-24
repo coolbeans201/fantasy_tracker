@@ -86,7 +86,7 @@ def _player_season_leaders(
     min_games: int,
     use_team_splits: bool,
 ) -> pd.DataFrame:
-    fp_expr = fantasy_points_sql_expr(preset)
+    fp_expr = fantasy_points_sql_expr(preset, conn)
     table = "season_team_stats" if (use_team_splits or team) else "season_stats"
     team_col = "team" if table == "season_team_stats" else "teams"
     stats = sql_player_stat_select()
@@ -350,7 +350,7 @@ def entity_all_weekly(
             """,
             [team],
         )
-    fp_expr = fantasy_points_sql_expr(preset)
+    fp_expr = fantasy_points_sql_expr(preset, conn)
     stats = sql_player_stat_select()
     return _fetch_df(
         conn,
@@ -369,7 +369,7 @@ def player_seasons(
     player_id: str,
     preset: str,
 ) -> pd.DataFrame:
-    fp_expr = fantasy_points_sql_expr(preset)
+    fp_expr = fantasy_points_sql_expr(preset, conn)
     stats = sql_player_stat_select()
     return _fetch_df(
         conn,
@@ -393,7 +393,7 @@ def player_team_splits(
     season: int,
     preset: str,
 ) -> pd.DataFrame:
-    fp_expr = fantasy_points_sql_expr(preset)
+    fp_expr = fantasy_points_sql_expr(preset, conn)
     stats = sql_player_stat_select()
     return _fetch_df(
         conn,
@@ -413,7 +413,7 @@ def player_weekly(
     season: int,
     preset: str,
 ) -> pd.DataFrame:
-    fp_expr = fantasy_points_sql_expr(preset)
+    fp_expr = fantasy_points_sql_expr(preset, conn)
     stats = sql_player_stat_select()
     return _fetch_df(
         conn,
@@ -436,7 +436,7 @@ def season_stats_for_peer_analysis(
     if min_games is None:
         min_games = get_min_games_default()
 
-    fp_expr = fantasy_points_sql_expr(preset)
+    fp_expr = fantasy_points_sql_expr(preset, conn)
     stats = sql_stat_select()
     if season is not None:
         return _fetch_df(
@@ -769,7 +769,7 @@ def weekly_stats_for_surprise(
     position: str | None,
 ) -> pd.DataFrame:
     """Weekly FP rows for building in-season rank surprise."""
-    fp_expr = fantasy_points_sql_expr(preset)
+    fp_expr = fantasy_points_sql_expr(preset, conn)
     query = f"""
         SELECT player_id, season, week, position, games, {fp_expr} AS fantasy_points
         FROM weekly_stats

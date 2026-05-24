@@ -83,14 +83,31 @@ def offensive_fp_column(preset: str) -> str:
     return fp_column_for_preset(resolve_preset(preset))
 
 
-def fantasy_points_sql_expr(preset: str, prefix: str = "") -> str:
+def fantasy_points_sql_expr(
+    preset_key: str,
+    conn,
+    prefix: str = "",
+) -> str:
     """
     SQL expression for leaderboard fantasy points.
-    Kickers use ESPN kicker points; other positions use the offensive preset.
+    Kickers use ESPN kicker points; other positions use built-in columns or custom weights.
     """
+    from src.scoring.offense_weights import offense_fp_sql_sum
+    from src.scoring.preset_store import get_offense_weights, is_custom_preset_key
+
     p = f"{prefix}." if prefix else ""
-    off_col = offensive_fp_column(preset)
+    if is_custom_preset_key(preset_key):
+        weights = get_offense_weights(conn, preset_key)
+        off_expr = offense_fp_sql_sum(weights, prefix=prefix)
+    else:
+        key = preset_key
+        if preset_key in DISPLAY_PRESETS:
+            key = DISPLAY_PRESETS[preset_key]
+        elif preset_key not in SCORING_PRESETS:
+            key = resolve_preset(preset_key)
+        off_col = offensive_fp_column(key)
+        off_expr = f"{p}{off_col}"
     return (
         f"CASE WHEN {p}position = 'K' THEN {p}fantasy_points_kicker "
-        f"ELSE {p}{off_col} END"
+        f"ELSE {off_expr} END"
     )

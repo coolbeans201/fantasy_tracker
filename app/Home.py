@@ -4,8 +4,8 @@ from datetime import datetime
 
 import streamlit as st
 
-from app.components import render_sidebar
-from src.db.connection import db_exists, get_connection, get_ingest_summary
+from app.components import get_db, render_sidebar
+from src.db.connection import db_exists, get_ingest_summary
 from src.db.queries import list_rankings_seasons, rankings_manifest_summary
 from src.ui_text import title_case_ui
 
@@ -41,7 +41,8 @@ st.divider()
 
 st.subheader(title_case_ui("Database status"))
 if db_exists():
-    summary = get_ingest_summary()
+    conn = get_db()
+    summary = get_ingest_summary(conn) if conn is not None else get_ingest_summary()
     seasons = summary["seasons"]
     if seasons:
         span = f"{seasons[-1]}–{seasons[0]}" if len(seasons) > 1 else str(seasons[0])
@@ -67,12 +68,12 @@ if db_exists():
         st.caption(
             f"Seasons: {', '.join(str(s) for s in sorted(seasons, reverse=True))}.{missing_hint}"
         )
-        conn = get_connection()
-        try:
+        if conn is not None:
             rank_seasons = list_rankings_seasons(conn)
             manifest = rankings_manifest_summary(conn)
-        finally:
-            conn.close()
+        else:
+            rank_seasons = []
+            manifest = None
         if rank_seasons:
             span = (
                 f"{rank_seasons[0]}–{rank_seasons[-1]}"

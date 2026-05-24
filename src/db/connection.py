@@ -116,6 +116,30 @@ def _migrate_stat_columns(conn: duckdb.DuckDBPyConnection) -> None:
         except duckdb.Error:
             pass
     _migrate_rankings_tables(conn)
+    _migrate_scoring_presets_table(conn)
+
+
+def _migrate_scoring_presets_table(conn: duckdb.DuckDBPyConnection) -> None:
+    conn.execute(
+        """
+        CREATE TABLE IF NOT EXISTS scoring_presets (
+            preset_id VARCHAR PRIMARY KEY,
+            name VARCHAR NOT NULL,
+            sport VARCHAR NOT NULL DEFAULT 'nfl',
+            offense_weights VARCHAR NOT NULL,
+            created_at TIMESTAMP NOT NULL
+        )
+        """
+    )
+    try:
+        conn.execute(
+            """
+            CREATE UNIQUE INDEX IF NOT EXISTS idx_scoring_presets_name
+            ON scoring_presets(sport, name)
+            """
+        )
+    except duckdb.Error:
+        pass
 
 
 def _migrate_rankings_tables(conn: duckdb.DuckDBPyConnection) -> None:
@@ -211,7 +235,7 @@ def list_ingested_seasons(conn: duckdb.DuckDBPyConnection | None = None) -> list
 
             return []
 
-        conn = get_connection(read_only=True)
+        conn = get_connection()
 
         close = True
 
@@ -242,7 +266,7 @@ def get_ingest_summary(conn: duckdb.DuckDBPyConnection | None = None) -> dict:
 
     close = False
     if conn is None:
-        conn = get_connection(read_only=True)
+        conn = get_connection()
         close = True
 
     try:

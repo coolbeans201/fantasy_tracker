@@ -66,7 +66,7 @@ seasons = controls["seasons"]
 season = controls["season"]
 is_window = controls["is_multi_season"]
 window_label = format_season_span(seasons)
-preset = controls["preset"]
+preset_key = controls["preset_key"]
 min_games = controls["min_games"]
 positions = _coerce_and_store()
 
@@ -111,13 +111,13 @@ else:
 
 if is_window:
     df = season_leaders_window(
-        conn, seasons, preset, positions=positions, min_games=min_games
+        conn, seasons, preset_key, positions=positions, min_games=min_games
     )
 else:
     df = season_leaders(
         conn,
         season,
-        preset,
+        preset_key,
         positions=positions,
         team=team_filter if team_filter not in (None, "All") else None,
         min_games=min_games,
@@ -134,13 +134,13 @@ if df.empty:
 surprise_all = None
 if not is_window:
     df = enrich_leaders_dataframe(
-        conn, df, season, preset, positions, min_games, era_z=controls["era_z"]
+        conn, df, season, preset_key, positions, min_games, era_z=controls["era_z"]
     )
     if season_has_rankings(conn, season):
         surprise_all = compute_season_surprise_frame(
             conn,
             season,
-            preset,
+            preset_key,
             min_games=min_games,
             include_dst=dst_view,
         )
@@ -149,7 +149,7 @@ if not is_window:
                 conn,
                 df,
                 season,
-                preset,
+                preset_key,
                 min_games=min_games,
                 include_dst=dst_view,
                 surprise_df=surprise_all,

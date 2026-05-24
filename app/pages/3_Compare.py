@@ -157,7 +157,7 @@ conn = get_db()
 
 min_games = controls["min_games"]
 
-preset = controls["preset"]
+preset_key = controls["preset_key"]
 
 
 
@@ -178,8 +178,8 @@ if not player_a or not player_b:
     st.stop()
 
 
-_shared_seasons = compare_shared_seasons(conn, player_a, player_b, preset)
-_union_seasons = compare_union_seasons(conn, player_a, player_b, preset)
+_shared_seasons = compare_shared_seasons(conn, player_a, player_b, preset_key)
+_union_seasons = compare_union_seasons(conn, player_a, player_b, preset_key)
 _sync_compare_sidebar_seasons(
     player_a,
     player_b,
@@ -276,7 +276,7 @@ df_a, df_b = compare_entities(
     conn,
     player_a,
     player_b,
-    preset,
+    preset_key,
     season=compare_season,
     seasons=compare_window,
 )
@@ -299,7 +299,7 @@ if df_a.empty or df_b.empty:
 
             )
 
-            avail = entity_seasons_available(conn, player_a, preset)
+            avail = entity_seasons_available(conn, player_a, preset_key)
 
             if avail:
 
@@ -319,7 +319,7 @@ if df_a.empty or df_b.empty:
 
             )
 
-            avail = entity_seasons_available(conn, player_b, preset)
+            avail = entity_seasons_available(conn, player_b, preset_key)
 
             if avail:
 
@@ -398,11 +398,11 @@ def _compare_stat_positions(pos_a: str, pos_b: str) -> list[str]:
 def _consistency_panel_for_entity(
     label: str, entity_id: str, position: str, season: int
 ) -> None:
-    weekly = entity_weekly(conn, entity_id, season, preset)
+    weekly = entity_weekly(conn, entity_id, season, preset_key)
     if weekly.empty:
         st.info(f"{label}: no weekly data for {season}.")
         return
-    p25, p75 = position_weekly_percentiles(conn, season, position, preset)
+    p25, p75 = position_weekly_percentiles(conn, season, position, preset_key)
     metrics = consistency_from_weekly(weekly, p25=p25, p75=p75)
     render_consistency_panel(
         metrics,
@@ -531,9 +531,9 @@ if mode in ("All-time", "Selected seasons"):
 
 
 
-    career_a = compute_career_z(entity_seasons(conn, player_a, preset), min_games=min_games)
+    career_a = compute_career_z(entity_seasons(conn, player_a, preset_key), min_games=min_games)
 
-    career_b = compute_career_z(entity_seasons(conn, player_b, preset), min_games=min_games)
+    career_b = compute_career_z(entity_seasons(conn, player_b, preset_key), min_games=min_games)
 
     ca = count_prime_seasons(career_a) if "career_z" in career_a.columns else 0
 
@@ -577,9 +577,9 @@ else:
 
     thresholds = load_thresholds()
 
-    career_a = compute_career_z(entity_seasons(conn, player_a, preset), min_games=min_games)
+    career_a = compute_career_z(entity_seasons(conn, player_a, preset_key), min_games=min_games)
 
-    career_b = compute_career_z(entity_seasons(conn, player_b, preset), min_games=min_games)
+    career_b = compute_career_z(entity_seasons(conn, player_b, preset_key), min_games=min_games)
 
 
 
@@ -593,7 +593,7 @@ else:
 
         peer_df = peer_df_for_entity_season(
 
-            conn, compare_season, preset, row["position"], min_games
+            conn, compare_season, preset_key, row["position"], min_games
 
         )
 
@@ -638,7 +638,7 @@ else:
     if compare_season is not None and season_has_rankings(conn, compare_season):
         for label, eid in ((name_a, player_a), (name_b, player_b)):
             surprise = season_surprise_for_entity(
-                conn, eid, compare_season, preset, min_games=min_games
+                conn, eid, compare_season, preset_key, min_games=min_games
             )
             if surprise:
                 st.caption(

@@ -6,7 +6,7 @@ Inspired by [NFL Perry](https://www.nflperry.com/) for data use cases, focused o
 
 ## Features
 
-- **Scoring:** Standard, Half-PPR, Full PPR for offense; **ESPN default** for kickers and team D/ST
+- **Scoring:** Standard, Half-PPR, Full PPR for offense; **custom offense presets** (sidebar editor, no re-ingest); **ESPN default** for kickers and team D/ST
 - **Season window (sidebar):** **Single season**, **season range**, or **pick seasons** — drives Leaders, Profile, and Compare
 - **Season Leaders:** QB/RB/WR/TE/K plus **DST**; sortable FP/G; **window leaders** when multiple years are selected; clickable names → Profile
 - **Player Profile:** **Career & window** (season table, peak/prime, career chart) and **season detail** (peer Z, consistency, weekly opponent, boom/bust weeks)
@@ -52,13 +52,16 @@ py -3.14 -m venv .venv
 
 Database: `data/fantasy_tracker.duckdb` (gitignored).
 
-**Sidebar:** scoring preset, **season view** (single / range / pick), min games, optional peer Z (era). **Repair database** rebuilds player index, fixes games played, refreshes display names, and backfills weekly **opponent** columns.
+**Sidebar:** scoring preset (built-ins or saved **★ custom** presets), **Custom scoring presets** expander (clone, edit stat weights, save/delete), **season view** (single / range / pick), min games, optional peer Z (era). **Repair database** rebuilds player index, fixes games played, refreshes display names, and backfills weekly **opponent** columns.
+
+**Custom scoring (v1):** Offense only (QB/RB/WR/TE). Points are computed at query time from weekly/season stat columns already in the database. Built-in presets still use precomputed `fantasy_points_*` columns from ingest. See [docs/CUSTOM_SCORING.md](docs/CUSTOM_SCORING.md).
 
 ## What you can do
 
 | Question | Where |
 |----------|--------|
 | Who were the top half-PPR RBs in 2022 with at least 8 games? | **Season Leaders** — sidebar single season 2022, position RB, Half-PPR |
+| Match my league’s reception scoring (e.g. 1.25 PPR) | Sidebar **Custom scoring presets** — clone Full PPR, tweak weights, save, select **★** preset |
 | Who dominated 2018–2022 on total points and per game? | **Season Leaders** — sidebar **season range** 2018–2022; window totals and FP/G |
 | How does a player’s 2021 compare to their own career? | **Player Profile** — **Career Z** on the season row in **Career & window** |
 | How elite was a season vs peers that year? | **Player Profile** → **Season detail** — **Peer Z (season)**; sidebar **peer Z (era)** for historical baseline on career table |
@@ -103,7 +106,8 @@ Resume a failed bulk ingest from a year:
 
 | File | What it controls |
 |------|------------------|
-| [`src/scoring/presets.yaml`](src/scoring/presets.yaml) | Offensive scoring (Standard / Half-PPR / Full PPR) |
+| [`src/scoring/presets.yaml`](src/scoring/presets.yaml) | Built-in offensive scoring (Standard / Half-PPR / Full PPR) |
+| `scoring_presets` table (DuckDB) | Saved custom offense presets (`data/fantasy_tracker.duckdb`) |
 | [`src/scoring/kicker_presets.yaml`](src/scoring/kicker_presets.yaml) | ESPN kicker scoring |
 | [`src/scoring/dst_presets.yaml`](src/scoring/dst_presets.yaml) | ESPN D/ST scoring |
 | [`config/settings.yaml`](config/settings.yaml) | Default min games (8) |
@@ -117,7 +121,7 @@ Re-ingest after schema or position-filter changes.
 ```
 app/                    Streamlit UI (pages, charts, tables)
 src/season_selection.py Sidebar season window helpers
-src/scoring/            Fantasy point presets
+src/scoring/            Built-in presets, custom preset store, query-time FP SQL
 src/analytics/          Z-scores, consistency, metrics
 src/db/                 DuckDB schema, queries, maintenance
 scripts/                Ingest and utilities
@@ -125,7 +129,7 @@ docs/                   Enhancement and multi-sport roadmaps
 data/                   Local DuckDB (gitignored)
 ```
 
-Planning docs: [docs/ENHANCEMENT_ROADMAP.md](docs/ENHANCEMENT_ROADMAP.md) (NFL polish), [docs/CUSTOM_SCORING.md](docs/CUSTOM_SCORING.md) (custom presets — planned), [docs/MULTISPORT_ROADMAP.md](docs/MULTISPORT_ROADMAP.md) (MLB/NBA/NHL brainstorm).
+Planning docs: [docs/ENHANCEMENT_ROADMAP.md](docs/ENHANCEMENT_ROADMAP.md) (NFL polish), [docs/CUSTOM_SCORING.md](docs/CUSTOM_SCORING.md) (custom scoring design + v1 scope), [docs/MULTISPORT_ROADMAP.md](docs/MULTISPORT_ROADMAP.md) (MLB/NBA/NHL brainstorm).
 
 ## Troubleshooting
 
@@ -141,6 +145,8 @@ Run `.\.venv\Scripts\python.exe scripts\check_env.py` first — it flags 32-bit 
 | Player not in search | Type 2+ letters (e.g. `Luck`); **Repair database** or `scripts/rebuild_players.py` |
 | Only two Compare modes | Choose **Selected seasons** (third mode is always listed); use multi-year sidebar window for span compare |
 | Import / chart errors | `pip install -r requirements.txt` (includes matplotlib); clear `__pycache__` and restart Streamlit |
+| DuckDB “different configuration” on startup | Restart Streamlit after upgrading; app uses one shared DB connection (read-write) |
+| Custom preset not reflected on pages | Save preset, select **★** row in **Scoring**; save/delete clears the DB cache automatically |
 
 Expected ingest messages: `Dropped N weekly rows` (missing IDs or non-skill positions). Bulk ingest is **one season at a time** — safe to resume mid-range.
 

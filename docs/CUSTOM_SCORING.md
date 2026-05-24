@@ -1,8 +1,8 @@
-# Custom Scoring (Planned)
+# Custom Scoring
 
 Plan for letting users define **custom fantasy scoring** on top of the **stats and player pool we already ingest**. This is an expansion of today’s three built-in offensive presets (Standard / Half-PPR / Full PPR) and fixed ESPN K/DST rules—not a new data source or league importer.
 
-**Status:** Planned (return after NFL baseline + [multi-sport Phase 0](MULTISPORT_ROADMAP.md) is recommended).
+**Status:** **v1 in app** — custom **offense** presets (QB/RB/WR/TE) via sidebar **Custom scoring presets**; K/DST stay ESPN. Built-ins still use precomputed `fantasy_points_*` columns; custom uses query-time weighted sums. Multi-sport can reuse `scoring_presets.sport` later.
 
 **Related:** [ENHANCEMENT_ROADMAP.md](ENHANCEMENT_ROADMAP.md) (NFL polish), [MULTISPORT_ROADMAP.md](MULTISPORT_ROADMAP.md) (sport-scoped plugins).
 

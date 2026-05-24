@@ -20,12 +20,12 @@ _WEEKLY_VOLUME_COLS = (
 )
 
 
-def _weekly_fp_sql(preset: str, position: str | None) -> str:
+def _weekly_fp_sql(preset_key: str, position: str | None, conn: duckdb.DuckDBPyConnection) -> str:
     if is_dst_position(position):
         return DST_FP_COLUMN
     if positions_for_peer_grouping(position) == "K":
         return KICKER_FP_COLUMN
-    return fantasy_points_sql_expr(preset)
+    return fantasy_points_sql_expr(preset_key, conn)
 
 
 def _filter_qualified_weekly_rows(df: pd.DataFrame) -> pd.DataFrame:
@@ -63,7 +63,7 @@ def position_weekly_percentiles(
         """
         params: list = [season]
     else:
-        fp_expr = _weekly_fp_sql(preset, pos)
+        fp_expr = _weekly_fp_sql(preset, pos, conn)
         vol = ", ".join(c for c in _WEEKLY_VOLUME_COLS if c != "position")
         sql = f"""
             SELECT {fp_expr} AS fp, position, {vol}
