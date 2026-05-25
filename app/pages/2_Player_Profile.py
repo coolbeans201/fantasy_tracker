@@ -1,4 +1,4 @@
-"""Player Profile page (players and team defenses)."""
+"""NFL Player Profile page (players and team defenses)."""
 
 from __future__ import annotations
 
@@ -6,6 +6,7 @@ import numpy as np
 import pandas as pd
 import streamlit as st
 
+from app.sport_context import init_sport_page
 from app.career_table import (
     add_highlight_column,
     format_peak_prime_caption,
@@ -380,10 +381,12 @@ def _render_season_detail_section(
     )
 
 
-st.set_page_config(page_title=page_title_suffix("Player Profile"), layout="wide")
+st.set_page_config(page_title=page_title_suffix("NFL Player Profile"), layout="wide")
+init_sport_page("nfl")
 
 _query_season = query_param_season()
 controls = render_sidebar(
+    sport="nfl",
     default_season=st.session_state.get("profile_season_default") or _query_season,
     season_options=st.session_state.get("profile_entity_seasons"),
     season_scope_caption=_profile_season_scope_caption(

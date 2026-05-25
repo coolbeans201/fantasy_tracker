@@ -18,8 +18,6 @@ from src.db.connection import (
 
     get_connection,
 
-    list_ingested_seasons,
-
     players_table_needs_rebuild,
 
     recompute_games_played,
@@ -30,13 +28,19 @@ from src.db.connection import (
 
 )
 
-from src.db.maintenance import backfill_weekly_opponents
+from src.db.maintenance import (
+    backfill_dst_points_allowed,
+    backfill_mlb_player_names,
+    backfill_weekly_opponents,
+)
 
 from src.db.queries import search_fantasy_entities
 
 from src.positions import FANTASY_POSITIONS, leader_position_options
 
 
+from src.db.connection import list_sport_seasons
+from src.sports.registry import get_sport, leader_position_options as sport_leader_positions
 from src.season_selection import (
     SEASON_MODE_PICK,
     SEASON_MODE_RANGE,
@@ -129,13 +133,15 @@ def _empty_sidebar_controls() -> dict:
 
 def render_sidebar(
     *,
+    sport: str = "nfl",
     default_season: int | None = None,
     season_options: list[int] | None = None,
     season_scope_caption: str | None = None,
 ) -> dict:
-    """Global sidebar controls."""
-    st.sidebar.title("Fantasy Tracker")
-    st.sidebar.caption("NFL completed-season analytics")
+    """Global sidebar controls for a single sport (no cross-sport switching)."""
+    meta = get_sport(sport)
+    st.sidebar.title(f"{meta.icon} {meta.label}")
+    st.sidebar.caption(f"{meta.label} completed-season analytics")
 
     if not db_exists():
         st.sidebar.warning("No database found. Run ingest first.")
@@ -146,7 +152,7 @@ def render_sidebar(
         st.sidebar.warning("No database found. Run ingest first.")
         return _empty_sidebar_controls()
 
-    ingested = list_ingested_seasons(conn)
+    ingested = list_sport_seasons(conn, sport)
     if season_options is not None:
         allowed = sorted(set(season_options) & set(ingested), reverse=True)
     else:
@@ -155,7 +161,11 @@ def render_sidebar(
         st.sidebar.warning("No seasons ingested.")
         return _empty_sidebar_controls()
 
-    preset_label, preset_key = render_scoring_sidebar(conn)
+    if sport == "nfl":
+        preset_label, preset_key = render_scoring_sidebar(conn)
+    else:
+        preset_label, preset_key = "ESPN", "espn"
+        st.sidebar.caption("Scoring: **ESPN** default points (v1).")
 
     if "sidebar_season_mode" not in st.session_state:
         st.session_state.sidebar_season_mode = SEASON_MODE_SINGLE
@@ -230,22 +240,24 @@ def render_sidebar(
         st.sidebar.warning("Select at least one season in this window.")
 
     default_min = get_min_games_default()
+    max_games = {"nfl": 17, "mlb": 162, "nba": 82, "nhl": 82}.get(sport, 82)
     min_games = st.sidebar.slider(
         title_case_ui("Min games played"),
         min_value=1,
-        max_value=17,
-        value=default_min,
-        help=f"Default {default_min} (config/settings.yaml) — half-season threshold",
+        max_value=max_games,
+        value=min(default_min, max_games),
+        help=f"Default {default_min} (config/settings.yaml)",
     )
-    era_z = st.sidebar.checkbox(title_case_ui("Show peer Z (all-time era)"), value=False)
-
-    if st.sidebar.button(
-        title_case_ui("Repair database"),
-        help="Rebuild player index and refresh games played.",
-    ):
-        run_database_maintenance()
-        st.sidebar.success("Database maintenance finished.")
-        st.rerun()
+    era_z = False
+    if sport == "nfl":
+        era_z = st.sidebar.checkbox(title_case_ui("Show peer Z (all-time era)"), value=False)
+        if st.sidebar.button(
+            title_case_ui("Repair database"),
+            help="Rebuild player index and refresh games played.",
+        ):
+            run_database_maintenance()
+            st.sidebar.success("Database maintenance finished.")
+            st.rerun()
 
     detail_season = window_seasons[0] if window_seasons else None
     return {
@@ -257,7 +269,8 @@ def render_sidebar(
         "preset_key": preset_key,
         "era_z": era_z,
         "min_games": min_games,
-        "fantasy_positions": leader_position_options(),
+        "fantasy_positions": sport_leader_positions(sport),
+        "sport": sport,
     }
 
 
@@ -280,6 +293,8 @@ def run_database_maintenance() -> None:
 
         refresh_player_display_names(conn)
         backfill_weekly_opponents(conn)
+        backfill_dst_points_allowed(conn)
+        backfill_mlb_player_names(conn)
 
     finally:
 

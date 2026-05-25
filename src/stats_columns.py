@@ -125,6 +125,7 @@ STAT_LABELS: dict[str, str] = {
     "def_touchdowns": "Def TD",
     "return_touchdowns": "Return TD",
     "points_allowed": "Points Allowed",
+    "yards_allowed": "Yards Allowed",
     "fantasy_points_kicker": "Fantasy Points (K)",
     "fantasy_points_dst": "Fantasy Points (DST)",
 }
@@ -199,6 +200,7 @@ POSITION_EMPHASIS: dict[str, list[str]] = {
         "def_touchdowns",
         "return_touchdowns",
         "points_allowed",
+        "yards_allowed",
     ],
 }
 

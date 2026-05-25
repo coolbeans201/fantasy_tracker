@@ -115,8 +115,87 @@ def _migrate_stat_columns(conn: duckdb.DuckDBPyConnection) -> None:
             )
         except duckdb.Error:
             pass
+    for table in ("team_defense_weekly", "team_defense_season"):
+        try:
+            conn.execute(
+                f"ALTER TABLE {table} ADD COLUMN IF NOT EXISTS yards_allowed DOUBLE DEFAULT 0"
+            )
+        except duckdb.Error:
+            pass
     _migrate_rankings_tables(conn)
     _migrate_scoring_presets_table(conn)
+    _migrate_sport_columns(conn)
+    from src.db.sport_schema import init_sport_tables
+
+    init_sport_tables(conn)
+
+
+def _migrate_sport_columns(conn: duckdb.DuckDBPyConnection) -> None:
+    """Add sport to ingest_manifest and players for multi-sport metadata."""
+    try:
+        cols = {
+            str(r[0]).lower()
+            for r in conn.execute(
+                "SELECT column_name FROM information_schema.columns "
+                "WHERE table_name = 'ingest_manifest'"
+            ).fetchall()
+        }
+    except duckdb.Error:
+        cols = set()
+
+    if cols and "sport" not in cols:
+        conn.execute(
+            """
+            CREATE TABLE ingest_manifest_new (
+                sport VARCHAR NOT NULL DEFAULT 'nfl',
+                season INTEGER NOT NULL,
+                ingested_at TIMESTAMP NOT NULL,
+                row_count INTEGER,
+                PRIMARY KEY (sport, season)
+            )
+            """
+        )
+        conn.execute(
+            """
+            INSERT INTO ingest_manifest_new (sport, season, ingested_at, row_count)
+            SELECT 'nfl', season, ingested_at, row_count FROM ingest_manifest
+            """
+        )
+        conn.execute("DROP TABLE ingest_manifest")
+        conn.execute("ALTER TABLE ingest_manifest_new RENAME TO ingest_manifest")
+
+    try:
+        pcols = {
+            str(r[0]).lower()
+            for r in conn.execute(
+                "SELECT column_name FROM information_schema.columns "
+                "WHERE table_name = 'players'"
+            ).fetchall()
+        }
+    except duckdb.Error:
+        pcols = set()
+
+    if pcols and "sport" not in pcols:
+        conn.execute(
+            """
+            CREATE TABLE players_new (
+                sport VARCHAR NOT NULL DEFAULT 'nfl',
+                player_id VARCHAR NOT NULL,
+                player_name VARCHAR NOT NULL,
+                position VARCHAR,
+                last_season INTEGER,
+                PRIMARY KEY (sport, player_id)
+            )
+            """
+        )
+        conn.execute(
+            """
+            INSERT INTO players_new (sport, player_id, player_name, position, last_season)
+            SELECT 'nfl', player_id, player_name, position, last_season FROM players
+            """
+        )
+        conn.execute("DROP TABLE players")
+        conn.execute("ALTER TABLE players_new RENAME TO players")
 
 
 def _migrate_scoring_presets_table(conn: duckdb.DuckDBPyConnection) -> None:
@@ -225,7 +304,11 @@ def db_exists() -> bool:
 
 
 
-def list_ingested_seasons(conn: duckdb.DuckDBPyConnection | None = None) -> list[int]:
+def list_ingested_seasons(
+    conn: duckdb.DuckDBPyConnection | None = None,
+    *,
+    sport: str = "nfl",
+) -> list[int]:
 
     close = False
 
@@ -240,15 +323,43 @@ def list_ingested_seasons(conn: duckdb.DuckDBPyConnection | None = None) -> list
         close = True
 
     rows = conn.execute(
-
-        "SELECT season FROM ingest_manifest ORDER BY season DESC"
-
+        """
+        SELECT season FROM ingest_manifest
+        WHERE sport = ?
+        ORDER BY season DESC
+        """,
+        [sport],
     ).fetchall()
 
     if close:
 
         conn.close()
 
+    return [int(r[0]) for r in rows]
+
+
+def list_sport_seasons(
+    conn: duckdb.DuckDBPyConnection,
+    sport: str,
+) -> list[int]:
+    """Ingested seasons for a sport (NFL uses ingest_manifest; others use sport manifest)."""
+    sport = str(sport).strip().lower()
+    if sport == "nfl":
+        return list_ingested_seasons(conn, sport="nfl")
+    table_map = {
+        "mlb": "mlb_ingest_manifest",
+        "nba": "nba_ingest_manifest",
+        "nhl": "nhl_ingest_manifest",
+    }
+    table = table_map.get(sport)
+    if not table:
+        return []
+    try:
+        rows = conn.execute(
+            f"SELECT season FROM {table} ORDER BY season DESC"
+        ).fetchall()
+    except duckdb.Error:
+        return []
     return [int(r[0]) for r in rows]
 
 
@@ -274,6 +385,7 @@ def get_ingest_summary(conn: duckdb.DuckDBPyConnection | None = None) -> dict:
             """
             SELECT season, ingested_at, row_count
             FROM ingest_manifest
+            WHERE sport = 'nfl'
             ORDER BY season DESC
             """
         ).df()

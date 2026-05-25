@@ -25,8 +25,8 @@ def load_dst_preset() -> dict:
         return yaml.safe_load(f)
 
 
-def _parse_pa_tier(tier: str) -> tuple[int, int | None, float]:
-    """Parse '1-6' or '35+' into (low, high, points)."""
+def _parse_dst_tier(tier: str) -> tuple[int, int | None, float]:
+    """Parse '1-6', '0-99', or '35+' into (low, high, points)."""
     tier = str(tier).strip()
     if tier.endswith("+"):
         return int(tier[:-1]), None, 0.0
@@ -36,16 +36,21 @@ def _parse_pa_tier(tier: str) -> tuple[int, int | None, float]:
     return int(tier), int(tier), 0.0
 
 
-def points_allowed_bonus(points_allowed: float, tiers: dict) -> float:
-    """ESPN points-allowed tier bonus from opponent score."""
-    pa = int(round(float(points_allowed or 0)))
+def dst_tier_bonus(value: float, tiers: dict) -> float:
+    """ESPN D/ST tier bonus for points_allowed or yards_allowed."""
+    amount = int(round(float(value or 0)))
     for tier_key, pts in tiers.items():
-        low, high, _ = _parse_pa_tier(str(tier_key))
-        if high is None and pa >= low:
+        low, high, _ = _parse_dst_tier(str(tier_key))
+        if high is None and amount >= low:
             return float(pts)
-        if high is not None and low <= pa <= high:
+        if high is not None and low <= amount <= high:
             return float(pts)
     return 0.0
+
+
+def points_allowed_bonus(points_allowed: float, tiers: dict) -> float:
+    """ESPN points-allowed tier bonus from opponent score."""
+    return dst_tier_bonus(points_allowed, tiers)
 
 
 def compute_kicker_points(df: pd.DataFrame) -> pd.Series:
@@ -58,20 +63,24 @@ def compute_kicker_points(df: pd.DataFrame) -> pd.Series:
     return total.round(2)
 
 
+_DST_TIER_STATS = ("points_allowed", "yards_allowed")
+
+
 def compute_dst_points(df: pd.DataFrame) -> pd.Series:
     """Weekly or season team D/ST fantasy points (ESPN)."""
     preset = load_dst_preset()
-    tiers = preset.get("points_allowed", {})
     total = pd.Series(0.0, index=df.index)
 
     for stat, weight in preset.items():
-        if stat == "points_allowed":
+        if stat in _DST_TIER_STATS:
             continue
         if stat in df.columns and weight != 0:
             total += pd.to_numeric(df[stat], errors="coerce").fillna(0) * float(weight)
 
-    if "points_allowed" in df.columns and tiers:
-        total += df["points_allowed"].apply(lambda pa: points_allowed_bonus(pa, tiers))
+    for stat in _DST_TIER_STATS:
+        tiers = preset.get(stat, {})
+        if stat in df.columns and tiers:
+            total += df[stat].apply(lambda v, t=tiers: dst_tier_bonus(v, t))
 
     return total.round(2)
 

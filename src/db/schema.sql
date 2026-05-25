@@ -1,16 +1,20 @@
 -- Fantasy Tracker DuckDB schema
 
 CREATE TABLE IF NOT EXISTS ingest_manifest (
-    season INTEGER PRIMARY KEY,
+    sport VARCHAR NOT NULL DEFAULT 'nfl',
+    season INTEGER NOT NULL,
     ingested_at TIMESTAMP NOT NULL,
-    row_count INTEGER
+    row_count INTEGER,
+    PRIMARY KEY (sport, season)
 );
 
 CREATE TABLE IF NOT EXISTS players (
-    player_id VARCHAR PRIMARY KEY,
+    sport VARCHAR NOT NULL DEFAULT 'nfl',
+    player_id VARCHAR NOT NULL,
     player_name VARCHAR NOT NULL,
     position VARCHAR,
-    last_season INTEGER
+    last_season INTEGER,
+    PRIMARY KEY (sport, player_id)
 );
 
 CREATE TABLE IF NOT EXISTS weekly_stats (
@@ -151,6 +155,7 @@ CREATE TABLE IF NOT EXISTS team_defense_weekly (
     def_touchdowns DOUBLE DEFAULT 0,
     return_touchdowns DOUBLE DEFAULT 0,
     points_allowed DOUBLE DEFAULT 0,
+    yards_allowed DOUBLE DEFAULT 0,
     fantasy_points_dst DOUBLE,
     PRIMARY KEY (team, season, week, season_type)
 );
@@ -167,6 +172,7 @@ CREATE TABLE IF NOT EXISTS team_defense_season (
     def_touchdowns DOUBLE DEFAULT 0,
     return_touchdowns DOUBLE DEFAULT 0,
     points_allowed DOUBLE DEFAULT 0,
+    yards_allowed DOUBLE DEFAULT 0,
     fantasy_points_dst DOUBLE,
     best_week INTEGER,
     best_week_fp DOUBLE,

@@ -5,6 +5,14 @@ from __future__ import annotations
 import duckdb
 import pandas as pd
 
+from src.scoring.special import DST_FP_COLUMN, apply_dst_points
+from src.team_dst_columns import (
+    DST_STAT_COLUMNS,
+    attach_opponent_allowed_stats,
+    build_team_dst_season_aggregates,
+)
+from src.text_encoding import normalize_unicode_text
+
 
 def _player_id_column(players_df) -> str | None:
     for col in ("gsis_id", "player_id", "nfl_id"):
@@ -23,11 +31,11 @@ def rebuild_players_table(conn: duckdb.DuckDBPyConnection) -> None:
     if rows == 0:
         return
 
-    conn.execute("DELETE FROM players")
+    conn.execute("DELETE FROM players WHERE sport = 'nfl'")
     conn.execute(
         """
-        INSERT INTO players (player_id, player_name, position, last_season)
-        SELECT player_id, player_name, position, season AS last_season
+        INSERT INTO players (sport, player_id, player_name, position, last_season)
+        SELECT 'nfl', player_id, player_name, position, season AS last_season
         FROM season_stats
         QUALIFY ROW_NUMBER() OVER (
             PARTITION BY player_id ORDER BY season DESC
@@ -43,7 +51,9 @@ def players_table_needs_rebuild(conn: duckdb.DuckDBPyConnection) -> bool:
     ).fetchone()[0]
     if season_count == 0:
         return False
-    players_count = conn.execute("SELECT COUNT(*) FROM players").fetchone()[0]
+    players_count = conn.execute(
+        "SELECT COUNT(*) FROM players WHERE sport = 'nfl'"
+    ).fetchone()[0]
     return players_count < season_count
 
 
@@ -265,7 +275,143 @@ def backfill_weekly_opponents(conn: duckdb.DuckDBPyConnection) -> None:
             conn.unregister("_dst_weekly_opp")
 
 
+def backfill_mlb_player_names(conn: duckdb.DuckDBPyConnection) -> None:
+    """Fix MLB names stored with literal \\x UTF-8 escapes or Latin-1 mojibake."""
+    try:
+        rows = conn.execute(
+            "SELECT COUNT(*) FROM mlb_player_season_stats"
+        ).fetchone()[0]
+    except duckdb.Error:
+        return
+    if rows == 0:
+        return
+
+    names = conn.execute(
+        """
+        SELECT DISTINCT player_id, player_name
+        FROM mlb_player_season_stats
+        WHERE player_name LIKE '%\\x%'
+           OR player_name LIKE '%Ã%'
+           OR player_name LIKE '%\\u%'
+        """
+    ).df()
+    if names.empty:
+        return
+
+    names["fixed_name"] = names["player_name"].map(normalize_unicode_text)
+    changed = names[names["fixed_name"] != names["player_name"]]
+    if changed.empty:
+        return
+
+    conn.register("_mlb_names", changed[["player_id", "fixed_name"]])
+    conn.execute(
+        """
+        UPDATE mlb_player_season_stats AS s
+        SET player_name = n.fixed_name
+        FROM _mlb_names AS n
+        WHERE s.player_id = n.player_id
+        """
+    )
+    conn.unregister("_mlb_names")
+
+
+def backfill_dst_points_allowed(conn: duckdb.DuckDBPyConnection) -> None:
+    """
+    Fix D/ST points_allowed and yards_allowed (and fantasy_points_dst).
+    PA from schedules; yards from opponent offensive totals in team stats.
+    """
+    try:
+        total = conn.execute(
+            """
+            SELECT COUNT(*) FROM team_defense_weekly
+            WHERE season_type = 'REG'
+            """
+        ).fetchone()[0]
+        needs_fix = conn.execute(
+            """
+            SELECT COUNT(*) FROM team_defense_weekly
+            WHERE season_type = 'REG'
+              AND (COALESCE(points_allowed, 0) = 0 OR COALESCE(yards_allowed, 0) = 0)
+            """
+        ).fetchone()[0]
+    except duckdb.Error:
+        return
+
+    if total == 0 or needs_fix == 0:
+        return
+
+    weekly = conn.execute(
+        f"""
+        SELECT team, season, week, season_type, opponent, games,
+               {", ".join(DST_STAT_COLUMNS)}
+        FROM team_defense_weekly
+        WHERE season_type = 'REG'
+        """
+    ).df()
+    if weekly.empty:
+        return
+
+    import nflreadpy as nfl
+
+    seasons = sorted(int(s) for s in weekly["season"].dropna().unique())
+    schedules = nfl.load_schedules(seasons)
+    raw_teams = nfl.load_team_stats(seasons)
+    fixed = apply_dst_points(
+        attach_opponent_allowed_stats(weekly, schedules=schedules, team_stats=raw_teams)
+    )
+    if fixed.empty:
+        return
+
+    conn.register("_dst_pa", fixed)
+    conn.execute(
+        f"""
+        UPDATE team_defense_weekly AS w
+        SET points_allowed = f.points_allowed,
+            yards_allowed = f.yards_allowed,
+            {DST_FP_COLUMN} = f.{DST_FP_COLUMN}
+        FROM _dst_pa AS f
+        WHERE w.team = f.team
+          AND w.season = f.season
+          AND w.week = f.week
+          AND w.season_type = f.season_type
+        """
+    )
+    conn.unregister("_dst_pa")
+
+    season_dst = build_team_dst_season_aggregates(fixed)
+    if season_dst.empty:
+        return
+
+    placeholders = ", ".join("?" * len(seasons))
+    conn.execute(
+        f"DELETE FROM team_defense_season WHERE season IN ({placeholders})",
+        seasons,
+    )
+    season_cols = [
+        "team",
+        "season",
+        "games",
+        *DST_STAT_COLUMNS,
+        DST_FP_COLUMN,
+        "best_week",
+        "best_week_fp",
+    ]
+    for col in season_cols:
+        if col not in season_dst.columns:
+            season_dst[col] = pd.NA
+    conn.register("_dst_season", season_dst[season_cols])
+    conn.execute(
+        f"""
+        INSERT INTO team_defense_season ({", ".join(season_cols)})
+        SELECT {", ".join(season_cols)} FROM _dst_season
+        """
+    )
+    conn.unregister("_dst_season")
+
+
 __all__ = [
+    "backfill_dst_points_allowed",
+    "backfill_mlb_player_names",
     "backfill_weekly_opponents",
     "players_table_needs_rebuild",
     "rebuild_players_table",

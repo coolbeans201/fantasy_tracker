@@ -18,3 +18,15 @@ points_allowed:
   21-27: 0
   28-34: -1
   35+: -4
+
+# yards_allowed tiers -> bonus points (ESPN default; opponent pass + rush yards)
+yards_allowed:
+  0-99: 5
+  100-199: 3
+  200-299: 2
+  300-349: 0
+  350-399: -1
+  400-449: -3
+  450-499: -5
+  500-549: -6
+  550+: -7

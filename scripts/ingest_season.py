@@ -36,7 +36,12 @@ from src.stats_columns import (  # noqa: E402
     STAT_COLUMNS,
     resolve_player_name,
 )
-from src.team_dst_columns import DST_STAT_COLUMNS, NFLVERSE_TEAM_DST_MAP  # noqa: E402
+from src.team_dst_columns import (  # noqa: E402
+    DST_STAT_COLUMNS,
+    NFLVERSE_TEAM_DST_MAP,
+    attach_opponent_allowed_stats,
+    build_team_dst_season_aggregates,
+)
 
 
 def _to_pandas(data) -> pd.DataFrame:
@@ -218,35 +223,6 @@ def normalize_team_dst(df: pd.DataFrame) -> pd.DataFrame:
     return out
 
 
-def build_team_dst_aggregates(weekly: pd.DataFrame) -> pd.DataFrame:
-    stat_cols = [c for c in DST_STAT_COLUMNS if c in weekly.columns]
-    sum_agg = {c: (c, "sum") for c in stat_cols} | {DST_FP_COLUMN: (DST_FP_COLUMN, "sum")}
-
-    season = (
-        weekly.groupby(["team", "season"], as_index=False)
-        .agg(games=("week", "nunique"), **sum_agg)
-    )
-
-    best_rows = []
-    for (team, yr), group in weekly.groupby(["team", "season"]):
-        idx = group[DST_FP_COLUMN].idxmax()
-        if pd.isna(idx):
-            continue
-        row = group.loc[idx]
-        best_rows.append(
-            {
-                "team": team,
-                "season": yr,
-                "best_week": row["week"],
-                "best_week_fp": row[DST_FP_COLUMN],
-            }
-        )
-    if best_rows:
-        season = season.merge(pd.DataFrame(best_rows), on=["team", "season"], how="left")
-
-    return season
-
-
 def _table_columns(table: str) -> list[str]:
     meta = {
         "weekly": [
@@ -283,8 +259,17 @@ def ingest_seasons(seasons: list[int], replace: bool = True) -> None:
     weekly = apply_kicker_points(apply_all_presets(normalize_weekly(raw)))
 
     raw_team = _to_pandas(nfl.load_team_stats(seasons))
-    weekly_dst = apply_dst_points(normalize_team_dst(raw_team))
-    season_dst = build_team_dst_aggregates(weekly_dst) if not weekly_dst.empty else pd.DataFrame()
+    schedules = _to_pandas(nfl.load_schedules(seasons))
+    weekly_dst = apply_dst_points(
+        attach_opponent_allowed_stats(
+            normalize_team_dst(raw_team),
+            schedules=schedules,
+            team_stats=raw_team,
+        )
+    )
+    season_dst = (
+        build_team_dst_season_aggregates(weekly_dst) if not weekly_dst.empty else pd.DataFrame()
+    )
 
     if weekly.empty and weekly_dst.empty:
         print("No regular-season rows found.")
@@ -335,7 +320,9 @@ def ingest_seasons(seasons: list[int], replace: bool = True) -> None:
             conn.execute("DELETE FROM season_team_stats WHERE season = ?", [s])
             conn.execute("DELETE FROM team_defense_weekly WHERE season = ?", [s])
             conn.execute("DELETE FROM team_defense_season WHERE season = ?", [s])
-            conn.execute("DELETE FROM ingest_manifest WHERE season = ?", [s])
+            conn.execute(
+                "DELETE FROM ingest_manifest WHERE sport = 'nfl' AND season = ?", [s]
+            )
 
         w = weekly[weekly["season"] == s] if not weekly.empty else pd.DataFrame()
         t = team[team["season"] == s] if not team.empty else pd.DataFrame()
@@ -357,9 +344,9 @@ def ingest_seasons(seasons: list[int], replace: bool = True) -> None:
         row_count = len(w) + len(wd)
         conn.execute(
             """
-            INSERT INTO ingest_manifest (season, ingested_at, row_count)
-            VALUES (?, ?, ?)
-            ON CONFLICT (season) DO UPDATE SET
+            INSERT INTO ingest_manifest (sport, season, ingested_at, row_count)
+            VALUES ('nfl', ?, ?, ?)
+            ON CONFLICT (sport, season) DO UPDATE SET
                 ingested_at = excluded.ingested_at,
                 row_count = excluded.row_count
             """,

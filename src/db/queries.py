@@ -464,7 +464,7 @@ def entity_display_label(conn: duckdb.DuckDBPyConnection, entity_id: str) -> str
 
         return dst_display_name(dst_team_from_entity(entity_id))
     row = conn.execute(
-        "SELECT player_name FROM players WHERE player_id = ?",
+        "SELECT player_name FROM players WHERE sport = 'nfl' AND player_id = ?",
         [entity_id],
     ).fetchone()
     return str(row[0]) if row else entity_id
@@ -577,7 +577,7 @@ def search_fantasy_entities(
                     position,
                     last_season
                 FROM players
-                WHERE player_name ILIKE ?
+                WHERE sport = 'nfl' AND player_name ILIKE ?
                 UNION ALL
                 SELECT
                     'dst:' || team AS entity_id,
@@ -600,6 +600,7 @@ def search_fantasy_entities(
         SELECT entity_id, player_name, position, last_season FROM (
             SELECT player_id AS entity_id, player_name, position, last_season
             FROM players
+            WHERE sport = 'nfl'
             UNION ALL
             SELECT
                 'dst:' || team AS entity_id,

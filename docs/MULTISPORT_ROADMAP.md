@@ -1,6 +1,6 @@
 # Multi-Sport Expansion (Brainstorm)
 
-Brainstorm for growing Fantasy Tracker beyond NFL. **Pages stay the same within a sport**; never compare across sports (no NHL vs NBA).
+Brainstorm for growing Fantasy Tracker beyond NFL. **Analytics pages stay the same pattern within a sport** (Leaders, Profile, Compare); **never compare across sports** (no NHL vs NBA).
 
 **Build NFL enhancements first:** [ENHANCEMENT_ROADMAP.md](ENHANCEMENT_ROADMAP.md)
 
@@ -8,17 +8,27 @@ Brainstorm for growing Fantasy Tracker beyond NFL. **Pages stay the same within 
 
 ## Core idea
 
-Add a **sport** dimension everywhere: sidebar selects NFL | MLB | NBA | NHL, and all queries, ingest, positions, and scoring presets are scoped to that sport.
+Add a **sport** dimension everywhere: ingest, players, scoring presets, volume gates, and queries are scoped to one sport at a time.
+
+**Navigation (locked in):** **Per-sport entry**, not a single global “sport” dropdown buried in the sidebar.
+
+- **Global home** — pick NFL | MLB | NBA | NHL (tile or links).
+- **Per-sport hub** — sport-specific landing (ingest status, data source, season labels, quick links).
+- **Per-sport pages** — shared Leaders / Profile / Compare under that sport’s section; optional **sport-only** pages (e.g. NFL beat-draft-rank, MLB hitter vs pitcher leaders) without cluttering other sports.
+
+The sidebar within a sport keeps **season window**, **scoring**, **min games**, etc. It does **not** switch sports mid-flow (avoids mixing presets, positions, and stat columns).
 
 ```mermaid
 flowchart TB
-  subgraph ui [Streamlit]
-    sport[Sport selector]
-    pages[Leaders / Profile / Compare]
+  home[Global Home — pick sport]
+  subgraph ui [Streamlit per sport]
+    hub[NFL / MLB / NBA / NHL hub]
+    core[Leaders · Profile · Compare]
+    extra[Sport-only pages optional]
   end
-  subgraph core [Shared]
+  subgraph core_lib [Shared]
     db[(DuckDB)]
-    analytics[Z-scores consistency]
+    analytics[Z-scores · consistency]
   end
   subgraph plugins [Per-sport plugins]
     nfl[NFL]
@@ -26,23 +36,53 @@ flowchart TB
     nba[NBA]
     nhl[NHL]
   end
-  sport --> pages --> db
+  home --> hub --> core
+  hub --> extra
+  core --> db
+  extra --> db
   nfl --> db
   mlb --> db
   nba --> db
   nhl --> db
 ```
 
+**Example layout (Streamlit multipage):**
+
+```text
+app/
+  Home.py                    # Sport picker → links to hubs
+  pages/
+    nfl/
+      0_NFL_Home.py
+      1_Season_Leaders.py
+      2_Player_Profile.py
+      3_Compare.py
+      # optional: rankings / NFL-only tools
+    mlb/
+      0_MLB_Home.py
+      1_Hitter_Leaders.py    # optional split vs one Leaders page
+      2_Pitcher_Leaders.py
+      ...
+```
+
+Phase 0 can keep today’s flat `app/pages/` paths and introduce folders when the second sport lands.
+
 ---
 
 ## What maps from today’s NFL app
 
 **Reuses well**
-- Streamlit pages (Leaders, Profile, Compare)
-- DuckDB + manifest + player search
-- YAML scoring presets → precomputed fantasy points at ingest
+- Page *patterns* (Leaders, Profile, Compare) and shared components (`render_sidebar`, charts, Z-score helpers)
+- DuckDB + manifest + player search (with `sport` on keys)
+- Scoring: built-in YAML + [custom presets](CUSTOM_SCORING.md) (`scoring_presets.sport`)
 - Peer Z / career Z with sport-specific volume gates
 - Compare cohort rules (within sport only)
+
+**Per-sport (not shared UI copy)**
+- Hub / landing copy, ingest commands, data licenses
+- Sidebar defaults (positions, min games, scoring labels)
+- Stat columns and custom-scoring weight editor allowlist
+- Optional extra pages (see [Navigation](#core-idea))
 
 **Differs by sport**
 | Topic | NFL | MLB | NBA | NHL |
@@ -67,14 +107,26 @@ src/sports/
   nhl/
 ```
 
-**Database:** One `fantasy_tracker.duckdb`, composite keys with `sport`:
+**Database:** One `fantasy_tracker.duckdb`.
+
+**Shared dimension tables** (composite keys include `sport`):
 - `ingest_manifest(sport, season_year)`
 - `players(sport, player_id)`
-- `player_game_stats` — generalizes `weekly_stats` (NFL: `game_number` = week)
-- `player_season_stats`
-- NFL-only: `team_defense_*` tables
+- `scoring_presets(sport, …)` — already has `sport`
 
-Avoid one table with hundreds of nullable columns for all sports.
+**Per-sport stat tables** (typed columns, no universal mega-table):
+- NFL: keep / rename `weekly_stats`, `season_stats`, `season_team_stats`, `team_defense_*` (week = game index)
+- MLB: e.g. `mlb_player_game_stats`, `mlb_player_season_stats` (hits, HR, IP, K, …)
+- NBA / NHL: same idea — only columns that sport ingests
+
+Stats differ by sport; do **not** add all sports’ columns to one `player_game_stats` row. The sport plugin owns schema, ingest, stat allowlists for custom scoring, and `fantasy_points_sql_expr` for that sport.
+
+```text
+Shared: players, ingest_manifest, scoring_presets, (rankings per sport if any)
+NFL-only facts: weekly_stats, season_stats, team_defense_*
+MLB-only facts: mlb_* tables
+…
+```
 
 ---
 
@@ -115,16 +167,16 @@ Same pattern as NFL today (offense cross-position OK; special units isolated):
 | NBA | All lineup positions (or G/F/C groupings) |
 | NHL | Skaters together; goalies alone |
 
-Hard rule: **Compare never crosses sports** (enforced via single sidebar sport).
+Hard rule: **Compare never crosses sports** (enforced by separate page trees / session scope — no cross-sport entity picker).
 
 ---
 
 ## Suggested rollout
 
-1. **Phase 0** — NFL plugin extraction + `sport` column + rename weekly → game stats conceptually  
-2. **Phase 1** — MLB (pybaseball, season + game, hitter/pitcher)  
-3. **Phase 2** — NBA (nba_api, game logs)  
-4. **Phase 3** — NHL (nhl-api-py, skater/goalie)  
+1. **Phase 0** — NFL plugin extraction + `sport` on shared tables; document per-sport stat table policy; global home + NFL hub (can alias current pages)  
+2. **Phase 1** — MLB plugin + `mlb_*` stat tables + `app/pages/mlb/` hub and core pages  
+3. **Phase 2** — NBA (`nba_*` tables + pages)  
+4. **Phase 3** — NHL (`nhl_*` tables + pages)  
 
 Optional: unified CLI `ingest.py --sport mlb --season 2024`
 
@@ -135,7 +187,7 @@ Optional: unified CLI `ingest.py --sport mlb --season 2024`
 - Cross-sport Compare or leaderboards  
 - Playoffs, live in-season sync, play-by-play warehouses  
 
-**Planned after Phase 0:** [Custom scoring](CUSTOM_SCORING.md) — user-defined presets on ingested stats only (not league/platform import).  
+**NFL already shipped:** [Custom scoring](CUSTOM_SCORING.md) v1 (offense presets); extend per sport via plugin stat allowlists.  
 - FP per attempt / carry / target (see NFL enhancement doc)  
 - IDP, roto-only baseball without a points preset  
 
@@ -145,19 +197,39 @@ Optional: unified CLI `ingest.py --sport mlb --season 2024`
 
 1. **First new sport after Phase 0:** MLB (pybaseball)  
 2. **MLB v1 scoring:** Points league only (ESPN-style default) — roto deferred  
-3. **Database:** Single DuckDB + `sport` column (recommended default)
+3. **Database:** Single DuckDB; `sport` on shared metadata; **separate stat tables per sport**  
+4. **Navigation:** Global home → **per-sport hub** → shared analytics pages (+ sport-only pages as needed). Not a single sidebar sport switcher for the whole app.
 
 ## Open decisions
 
 1. App branding: keep “Fantasy Tracker” vs rename  
 2. NBA/NHL season key: calendar year vs `2023-24` string in UI  
+3. Streamlit folder naming: `pages/nfl/` vs top-level `NFL_Leaders.py` prefixes until second sport ships  
+
+---
+
+## Why per-sport pages (not one filter)
+
+| Need | Per-sport hub + pages |
+|------|------------------------|
+| Different ingest CLI and coverage on landing | ✓ |
+| Position taxonomy (DST/K vs hitter/pitcher vs goalie) | ✓ |
+| Sport-only features (NFL ECR / beat draft rank) | ✓ without hiding behind a filter |
+| Custom scoring stat editor | ✓ plugin allowlist per sport |
+| Season label UX (`2023` vs `2023–24`) | ✓ |
+| Extra leaders (MLB pitchers vs hitters) | ✓ optional pages |
+
+A sidebar-only sport dropdown stays possible for prototypes but **does not** scale when sport-specific nav and copy diverge.
 
 ---
 
 ## Checklist (when implementation starts)
 
-- [ ] Phase 0: `src/sports/nfl/` + sport-scoped schema migration  
-- [ ] Phase 1: MLB ingest + sidebar sport switch  
-- [ ] Phase 2: NBA  
-- [ ] Phase 3: NHL  
-- [ ] Per-sport README sections (data source, license, ingest command)  
+- [x] Phase 0: `src/sports/nfl/` + `sport` on shared tables; NFL stat tables unchanged  
+- [x] Phase 0: Global home sport picker + NFL hub page; `app/sport_context.py` scopes pages  
+- [x] Phase 1: MLB ingest + `mlb_*` stat tables + `app/pages/mlb/` hub and core pages  
+- [x] Phase 2: NBA tables + pages (`scripts/ingest_nba.py`)  
+- [x] Phase 3: NHL tables + pages (`scripts/ingest_nhl.py`)  
+- [x] Per-sport ingest commands in registry + `scripts/ingest.py --sport …`  
+
+**Note:** NFL Profile/Compare remain at `app/pages/2_*` and `3_*` (full analytics); MLB/NBA/NHL Profile/Compare are v1 season-row views until game-level ingest lands.

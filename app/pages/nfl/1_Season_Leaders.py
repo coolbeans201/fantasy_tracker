@@ -1,9 +1,10 @@
-"""Season Leaders page."""
+"""NFL Season Leaders page."""
 
 import streamlit as st
 
 from app.components import get_db, render_sidebar
 from app.leader_navigation import render_leaders_table
+from app.sport_context import init_sport_page
 from src.analytics.metrics import add_fp_per_game
 from app.surprise_ui import render_surprise_highlights
 from src.analytics.peer_z import enrich_leaders_dataframe
@@ -33,9 +34,10 @@ from src.stats_columns import (
 )
 from src.ui_text import page_title_suffix, title_case_ui
 
-st.set_page_config(page_title=page_title_suffix("Season Leaders"), layout="wide")
+st.set_page_config(page_title=page_title_suffix("NFL Season Leaders"), layout="wide")
+init_sport_page("nfl")
 
-controls = render_sidebar()
+controls = render_sidebar(sport="nfl")
 st.title("Season Leaders")
 
 if not db_exists() or not controls["seasons"]:

@@ -1,17 +1,11 @@
-"""Compare Players page."""
-
-
+"""NFL Compare Players page."""
 
 import numpy as np
-
 import pandas as pd
-
 import streamlit as st
 
-
-
 from app.charts import dual_entity_season_chart
-
+from app.sport_context import init_sport_page
 from app.components import fuzzy_player_select, get_db, render_sidebar
 
 from app.consistency_ui import render_consistency_panel
@@ -121,11 +115,11 @@ def _sync_compare_sidebar_seasons(
         st.rerun()
 
 
-st.set_page_config(page_title=page_title_suffix("Compare Players"), layout="wide")
-
-
+st.set_page_config(page_title=page_title_suffix("NFL Compare Players"), layout="wide")
+init_sport_page("nfl")
 
 controls = render_sidebar(
+    sport="nfl",
     default_season=st.session_state.get("compare_season_default"),
     season_options=st.session_state.get("compare_sidebar_seasons"),
     season_scope_caption=_compare_season_scope_caption(
