@@ -31,6 +31,7 @@ from src.db.connection import (
 from src.db.maintenance import (
     backfill_dst_points_allowed,
     backfill_mlb_player_names,
+    backfill_nba_positions,
     backfill_weekly_opponents,
 )
 
@@ -295,6 +296,7 @@ def run_database_maintenance() -> None:
         backfill_weekly_opponents(conn)
         backfill_dst_points_allowed(conn)
         backfill_mlb_player_names(conn)
+        backfill_nba_positions(conn)
 
     finally:
 

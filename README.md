@@ -20,14 +20,14 @@ Open-source fantasy analytics for **completed seasons** — season leaders, play
 ### MLB · NBA · NHL
 
 - Per-sport hub: **Overview**, **Season Leaders**, **Player Profile**, **Compare** (under `app/pages/{mlb,nba,nhl}/`)
-- **MLB:** Hitters + pitchers, ESPN-style season FP; ingest via **Baseball Reference** (2008+, recommended) or FanGraphs fallback
+- **MLB:** Field positions (**C, 1B, 2B, 3B, SS, LF, CF, RF, OF, DH**) and **SP/RP**; ESPN-style season FP; BRef stats + BRef/FanGraphs position lookup
 - **NBA:** Game-log season aggregates, positions from `PlayerIndex`, Half-PPR-style FP
-- **NHL:** Skaters vs goalies (separate cohorts), season FP from nhlpy
+- **NHL:** Skater positions (**C, LW, RW, D, F**) and **G** for goalies; season FP from nhlpy (`positionCode`)
 
 ### App
 
 - **Multi-sport home:** `st.navigation` + nested pages (Streamlit **1.36+**)
-- **Repair database** (sidebar): NFL games played, player index, display names, weekly **opponent**, D/ST **points/yards allowed**, MLB **accented player names**
+- **Repair database** (sidebar): NFL games played, player index, display names, weekly **opponent**, D/ST **points/yards allowed**, MLB **accented player names**, NBA **positions from team rosters**
 
 ## Data
 
@@ -98,7 +98,7 @@ Database: `data/fantasy_tracker.duckdb` (gitignored).
 | Compare careers across eras | **Compare** — **All-time** or **Selected seasons** |
 | Top defenses or kickers (ESPN scoring) | **NFL Season Leaders** — **DST** or **K** |
 | MLB/NBA/NHL season leaders | Sport hub → **Season Leaders** |
-| Open a leader in full profile | Click **Player** or **Team** name |
+| Open a leader in full profile | Click **Player** name on Season Leaders (NFL, MLB, NBA, NHL) |
 | Share a profile link | **Player Profile** — URL `?entity=` / `?season=` |
 | Tune peer Z volume gates | `scripts/volume_report.py --season 2023` |
 
@@ -185,11 +185,13 @@ Run `.\.venv\Scripts\python.exe scripts\check_env.py` first.
 | Empty Season Leaders | Lower min games; re-ingest; **Repair database** |
 | D/ST **points/yards allowed** all zero | **Repair database** or re-ingest NFL; PA needs schedules, yards need team stats |
 | MLB names like `Jos\xc3\xa9` | **Repair database** or re-ingest MLB (`src/text_encoding.py` fixes on read + backfill) |
+| MLB positions all **H** / **P** | Re-ingest MLB; new ingests store **CF, 1B, SP, RP**, etc. (legacy H/P still filter in UI) |
 | Missing **Opponent** (NFL weekly) | **Repair database** or re-ingest that season |
 | Player not in search | Type 2+ letters; **Repair database** or `scripts/rebuild_players.py` |
 | MLB BRef bulk skips seasons | Retry with `--season YEAR --source bref`; use `--fail-fast` to stop on first error |
-| NBA `PLAYER_POSITION` errors | Re-ingest with current `ingest_nba.py` (positions from `PlayerIndex`) |
+| NBA everyone shows **SF** | **Repair database** or re-ingest; positions come from **team rosters** (PlayerIndex join uses normalized player IDs) |
 | NHL partial seasons | nhlpy caps page size; re-ingest affected years with current `ingest_nhl.py` |
+| NHL positions all **S** / **G** | Re-ingest NHL; new ingests store **C, LW, RW, D** and **G** (legacy S still filters as skaters) |
 | Streamlit nested pages / duplicate URLs | Requires Streamlit **≥1.36**; entrypoint is `app/Home.py` |
 | Custom preset not on pages | Save preset, select **★** in **Scoring** |
 

@@ -44,3 +44,8 @@ def test_best_week_labels():
 def test_title_case_csv():
     assert title_case_ui("Download weekly CSV") == "Download Weekly CSV"
     assert title_case_ui("Download career CSV") == "Download Career CSV"
+
+
+def test_title_case_sport_abbreviations():
+    assert title_case_ui("peer z for pg vs sg") == "Peer Z for PG vs SG"
+    assert title_case_ui("mlb season leaders") == "MLB Season Leaders"

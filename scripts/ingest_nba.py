@@ -15,6 +15,10 @@ ROOT = Path(__file__).resolve().parents[1]
 sys.path.insert(0, str(ROOT))
 
 from src.db.connection import get_connection, init_schema  # noqa: E402
+from src.sports.nba.player_positions import (  # noqa: E402
+    fetch_season_positions,
+    normalize_player_id,
+)
 from src.sports.nba.positions import normalize_nba_position  # noqa: E402
 from src.sports.nba.scoring import compute_fp  # noqa: E402
 
@@ -30,32 +34,6 @@ def _col(raw: pd.DataFrame, *names: str) -> pd.Series:
     return pd.Series([None] * len(raw), index=raw.index)
 
 
-def _fetch_player_positions(end_year: int) -> dict[str, str]:
-    """PlayerIndex still exposes POSITION; LeagueDashPlayerStats does not."""
-    from nba_api.stats.endpoints import playerindex
-
-    season = _season_str(end_year)
-    resp = playerindex.PlayerIndex(season=season)
-    time.sleep(0.6)
-    idx = resp.get_data_frames()[0]
-    if idx.empty:
-        return {}
-    id_col = "PERSON_ID" if "PERSON_ID" in idx.columns else "PLAYER_ID"
-    pos_col = next(
-        (c for c in ("POSITION", "PLAYER_POSITION", "PLAYER_POSITION_ABBREVIATION") if c in idx.columns),
-        None,
-    )
-    if pos_col is None:
-        return {}
-    mapping: dict[str, str] = {}
-    for _, row in idx.iterrows():
-        pid = str(row[id_col]).strip()
-        norm = normalize_nba_position(row[pos_col])
-        if norm and pid not in mapping:
-            mapping[pid] = norm
-    return mapping
-
-
 def fetch_season(end_year: int) -> pd.DataFrame:
     from nba_api.stats.endpoints import leaguedashplayerstats
 
@@ -69,9 +47,9 @@ def fetch_season(end_year: int) -> pd.DataFrame:
     raw = resp.get_data_frames()[0]
     if raw.empty:
         return pd.DataFrame()
-    positions = _fetch_player_positions(end_year)
+    positions = fetch_season_positions(end_year)
     out = pd.DataFrame()
-    out["player_id"] = raw["PLAYER_ID"].astype(str).str.strip()
+    out["player_id"] = raw["PLAYER_ID"].map(normalize_player_id)
     out["player_name"] = raw["PLAYER_NAME"].astype(str)
     out["season"] = end_year
     out["position"] = out["player_id"].map(positions)
@@ -79,6 +57,11 @@ def fetch_season(end_year: int) -> pd.DataFrame:
         missing = out["position"].isna()
         out.loc[missing, "position"] = _col(raw, "PLAYER_POSITION").loc[missing].apply(
             normalize_nba_position
+        )
+    missing = out["position"].isna()
+    if missing.any():
+        print(
+            f"  WARNING: {int(missing.sum())} players missing position after roster/index merge"
         )
     out["position"] = out["position"].fillna("SF")
     out["team"] = _col(raw, "TEAM_ABBREVIATION").fillna("UNK").astype(str)

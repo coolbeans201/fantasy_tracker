@@ -5,7 +5,7 @@ from __future__ import annotations
 import duckdb
 import pandas as pd
 
-from src.sports.mlb.positions import PITCHER_POSITION, coerce_leader_selection
+from src.sports.mlb.positions import LEADER_POSITIONS, coerce_leader_selection, expand_leader_positions
 from src.text_encoding import normalize_unicode_series
 
 
@@ -31,7 +31,7 @@ def season_leaders(
 ) -> pd.DataFrame:
     del preset_key
     selected = coerce_leader_selection(positions)
-    pos = selected[0] if len(selected) == 1 else None
+    expanded = expand_leader_positions(selected)
     query = """
         SELECT
             player_id,
@@ -47,9 +47,10 @@ def season_leaders(
         WHERE season = ?
     """
     params: list = [season]
-    if pos:
-        query += " AND position = ?"
-        params.append(pos)
+    if expanded and len(expanded) < len(LEADER_POSITIONS):
+        placeholders = ", ".join("?" * len(expanded))
+        query += f" AND position IN ({placeholders})"
+        params.extend(expanded)
     if min_games and min_games > 0:
         query += " AND games >= ?"
         params.append(min_games)

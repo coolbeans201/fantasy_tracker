@@ -20,7 +20,15 @@ from src.db.sport_schema import (  # noqa: E402
     MLB_PLAYER_SEASON_COLUMNS,
     ensure_mlb_player_season_stats_schema,
 )
-from src.sports.mlb.positions import HITTER_POSITION, PITCHER_POSITION  # noqa: E402
+from src.sports.mlb.position_lookup import (  # noqa: E402
+    load_field_position_map,
+    resolve_field_position,
+)
+from src.sports.mlb.positions import (  # noqa: E402
+    classify_pitcher_role,
+    is_pitcher_position,
+    normalize_mlb_field_position,
+)
 from src.sports.mlb.scoring import compute_hitter_fp, compute_pitcher_fp  # noqa: E402
 from src.text_encoding import normalize_unicode_series  # noqa: E402
 
@@ -123,8 +131,8 @@ def _consolidate_mlb_frame(frame: pd.DataFrame) -> pd.DataFrame:
     if "player_name" in grouped.columns:
         grouped["player_name"] = normalize_unicode_series(grouped["player_name"])
     if "fantasy_points_espn" in grouped.columns:
-        hit_mask = grouped["position"] == HITTER_POSITION
-        pit_mask = grouped["position"] == PITCHER_POSITION
+        hit_mask = ~grouped["position"].map(is_pitcher_position)
+        pit_mask = grouped["position"].map(is_pitcher_position)
         if hit_mask.any():
             grouped.loc[hit_mask, "fantasy_points_espn"] = compute_hitter_fp(
                 grouped.loc[hit_mask]
@@ -161,7 +169,7 @@ def _player_id(raw: pd.DataFrame) -> pd.Series:
     return names
 
 
-def _batting_frame_bref(year: int) -> pd.DataFrame:
+def _batting_frame_bref(year: int, pos_by_name: dict[str, str]) -> pd.DataFrame:
     raw = _fetch_bref_raw(year, batting=True)
     if raw is None or raw.empty:
         return pd.DataFrame()
@@ -174,7 +182,9 @@ def _batting_frame_bref(year: int) -> pd.DataFrame:
     out["player_id"] = _player_id(raw)
     out["player_name"] = _player_names(raw)
     out["season"] = year
-    out["position"] = HITTER_POSITION
+    out["position"] = out["player_name"].map(
+        lambda n: resolve_field_position(n, pos_by_name)
+    )
     out["team"] = _series(raw, "Tm", "Team", "team").fillna("UNK").astype(str)
     out["games"] = games.loc[raw.index].astype(int)
     out["runs"] = pd.to_numeric(_series(raw, "R"), errors="coerce").fillna(0)
@@ -203,7 +213,13 @@ def _pitching_frame_bref(year: int) -> pd.DataFrame:
     out["player_id"] = _player_id(raw)
     out["player_name"] = _player_names(raw)
     out["season"] = year
-    out["position"] = PITCHER_POSITION
+    g = games.loc[raw.index]
+    gs = pd.to_numeric(_series(raw, "GS"), errors="coerce").fillna(0)
+    sv = pd.to_numeric(_series(raw, "SV"), errors="coerce").fillna(0)
+    out["position"] = pd.DataFrame({"g": g, "gs": gs, "sv": sv}).apply(
+        lambda r: classify_pitcher_role(r["g"], r["gs"], r["sv"]),
+        axis=1,
+    )
     out["team"] = _series(raw, "Tm", "Team", "team").fillna("UNK").astype(str)
     out["games"] = games.loc[raw.index].astype(int)
     out["wins"] = pd.to_numeric(_series(raw, "W"), errors="coerce").fillna(0)
@@ -224,11 +240,18 @@ def _batting_frame_fangraphs(year: int) -> pd.DataFrame:
     raw = batting_stats(year, qual=1)
     if raw is None or raw.empty:
         return pd.DataFrame()
+    pos_col = "Pos" if "Pos" in raw.columns else None
     out = pd.DataFrame()
     out["player_id"] = raw["IDfg"].astype(str)
     out["player_name"] = normalize_unicode_series(raw["Name"].astype(str))
     out["season"] = year
-    out["position"] = HITTER_POSITION
+    if pos_col:
+        out["position"] = raw[pos_col].map(normalize_mlb_field_position).fillna("UTIL")
+    else:
+        pos_by_name = load_field_position_map(year)
+        out["position"] = out["player_name"].map(
+            lambda n: resolve_field_position(n, pos_by_name)
+        )
     out["team"] = raw.get("Team", pd.Series(["UNK"] * len(raw))).astype(str)
     out["games"] = pd.to_numeric(raw.get("G", 0), errors="coerce").fillna(0).astype(int)
     out["runs"] = pd.to_numeric(raw.get("R", 0), errors="coerce").fillna(0)
@@ -261,9 +284,15 @@ def _pitching_frame_fangraphs(year: int) -> pd.DataFrame:
     out["player_id"] = raw["IDfg"].astype(str)
     out["player_name"] = normalize_unicode_series(raw["Name"].astype(str))
     out["season"] = year
-    out["position"] = PITCHER_POSITION
+    g = pd.to_numeric(raw.get("G", 0), errors="coerce").fillna(0)
+    gs = pd.to_numeric(raw.get("GS", 0), errors="coerce").fillna(0)
+    sv = pd.to_numeric(raw.get("SV", 0), errors="coerce").fillna(0)
+    out["position"] = pd.DataFrame({"g": g, "gs": gs, "sv": sv}).apply(
+        lambda r: classify_pitcher_role(r["g"], r["gs"], r["sv"]),
+        axis=1,
+    )
     out["team"] = raw.get("Team", pd.Series(["UNK"] * len(raw))).astype(str)
-    out["games"] = pd.to_numeric(raw.get("G", 0), errors="coerce").fillna(0).astype(int)
+    out["games"] = g.astype(int)
     out["wins"] = pd.to_numeric(raw.get("W", 0), errors="coerce").fillna(0)
     out["strikeouts_pitch"] = pd.to_numeric(raw.get("SO", 0), errors="coerce").fillna(0)
     out["saves"] = pd.to_numeric(raw.get("SV", 0), errors="coerce").fillna(0)
@@ -277,6 +306,8 @@ def _pitching_frame_fangraphs(year: int) -> pd.DataFrame:
 
 
 def _fetch_frames(year: int, source: str) -> tuple[pd.DataFrame, pd.DataFrame, str]:
+    pos_by_name = load_field_position_map(year)
+
     if year < BREF_MIN_SEASON and source in ("auto", "bref"):
         raise ValueError(
             f"Baseball Reference ingest supports seasons {BREF_MIN_SEASON}+. "
@@ -284,7 +315,7 @@ def _fetch_frames(year: int, source: str) -> tuple[pd.DataFrame, pd.DataFrame, s
         )
 
     if source == "bref":
-        hit = _batting_frame_bref(year)
+        hit = _batting_frame_bref(year, pos_by_name)
         time.sleep(2.0)
         pit = _pitching_frame_bref(year)
         if hit.empty and pit.empty:
@@ -299,7 +330,7 @@ def _fetch_frames(year: int, source: str) -> tuple[pd.DataFrame, pd.DataFrame, s
 
     # auto: BRef first, FanGraphs only on failure
     try:
-        hit = _batting_frame_bref(year)
+        hit = _batting_frame_bref(year, pos_by_name)
         time.sleep(2.0)
         pit = _pitching_frame_bref(year)
         if not hit.empty or not pit.empty:

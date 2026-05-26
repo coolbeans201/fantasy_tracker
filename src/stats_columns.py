@@ -128,6 +128,32 @@ STAT_LABELS: dict[str, str] = {
     "yards_allowed": "Yards Allowed",
     "fantasy_points_kicker": "Fantasy Points (K)",
     "fantasy_points_dst": "Fantasy Points (DST)",
+    # MLB
+    "runs": "Runs",
+    "home_runs": "Home Runs",
+    "rbi": "RBI",
+    "stolen_bases": "Stolen Bases",
+    "wins": "Wins",
+    "strikeouts_pitch": "Strikeouts (Pitching)",
+    "saves": "Saves",
+    "innings_pitched": "Innings Pitched",
+    "era": "ERA",
+    # NBA
+    "points": "Points",
+    "rebounds": "Rebounds",
+    "assists": "Assists",
+    "steals": "Steals",
+    "blocks": "Blocks",
+    "turnovers": "Turnovers",
+    "three_pointers": "Three-Pointers",
+    # NHL
+    "goals": "Goals",
+    "plus_minus": "Plus/Minus",
+    "shots": "Shots",
+    "hits": "Hits",
+    "goals_against": "Goals Against",
+    "shutouts": "Shutouts",
+    "fantasy_points_espn": "Fantasy Points (ESPN)",
 }
 
 # Stored separately in DB; shown as one "Fumbles Lost" column in the UI
@@ -504,6 +530,25 @@ def round_table_for_display(df: pd.DataFrame, decimals: int = 2) -> pd.DataFrame
             else:
                 out[col] = numeric.round(decimals)
     return out
+
+
+# Internal keys hidden from default profile / compare raw tables
+DEFAULT_HIDDEN_DISPLAY_COLUMNS = frozenset({"player_id"})
+
+
+def format_stats_dataframe_for_display(
+    df: pd.DataFrame,
+    *,
+    hide_columns: frozenset[str] | None = None,
+    columns: list[str] | None = None,
+) -> pd.DataFrame:
+    """Rename columns for UI display (title-case labels, sport stat names)."""
+    hidden = hide_columns if hide_columns is not None else DEFAULT_HIDDEN_DISPLAY_COLUMNS
+    if columns is None:
+        columns = [c for c in df.columns if c not in hidden]
+    else:
+        columns = [c for c in columns if c not in hidden]
+    return rename_stats_for_display(df, columns=columns)
 
 
 def rename_stats_for_display(df, columns: list[str] | None = None):

@@ -1,38 +1,40 @@
+import duckdb
+import pandas as pd
 import streamlit as st
-from app.components import get_db, render_sidebar
-from app.sport_context import init_sport_page
-from src.db.connection import db_exists
-from src.sports.mlb.positions import HITTER_POSITION, PITCHER_POSITION
-from src.ui_text import page_title_suffix
 
-st.set_page_config(page_title=page_title_suffix("MLB Compare"), layout="wide")
-init_sport_page("mlb")
-controls = render_sidebar(sport="mlb")
-st.title("Compare Players")
-st.caption("Compare **hitters to hitters** or **pitchers to pitchers** only.")
-if not db_exists() or not controls["seasons"]:
-    st.stop()
-conn = get_db()
-season = controls["season"]
-cohort = st.radio("Cohort", [HITTER_POSITION, PITCHER_POSITION], horizontal=True)
-rows = conn.execute(
-    """
-    SELECT player_name, position, team, games, fantasy_points_espn AS fantasy_points
-    FROM mlb_player_season_stats
-    WHERE season = ? AND position = ?
-    ORDER BY fantasy_points_espn DESC
-    LIMIT 500
-    """,
-    [season, cohort],
-).df()
-if rows.empty:
-    st.warning("No data.")
-    st.stop()
-a = st.selectbox("Player A", rows["player_name"])
-b = st.selectbox("Player B", rows["player_name"])
-ra = rows[rows["player_name"] == a].iloc[0]
-rb = rows[rows["player_name"] == b].iloc[0]
-c1, c2, c3 = st.columns(3)
-c1.metric(a, f"{ra['fantasy_points']:.1f} FP")
-c2.metric(b, f"{rb['fantasy_points']:.1f} FP")
-c3.metric("Diff", f"{ra['fantasy_points'] - rb['fantasy_points']:+.1f}")
+from app.sport_compare_page import render_sport_compare_page
+from src.sports.mlb.positions import FIELD_POSITIONS, PITCHER_POSITIONS
+from src.ui_text import title_case_ui
+
+
+def _load_mlb_rows(conn: duckdb.DuckDBPyConnection, season: int) -> pd.DataFrame:
+    cohort = st.radio(
+        title_case_ui("Cohort"),
+        [title_case_ui("Hitters"), title_case_ui("Pitchers")],
+        horizontal=True,
+        key="mlb_compare_cohort",
+    )
+    if cohort == title_case_ui("Pitchers"):
+        pos_filter = PITCHER_POSITIONS
+    else:
+        pos_filter = FIELD_POSITIONS + ["H"]
+    placeholders = ", ".join("?" * len(pos_filter))
+    return conn.execute(
+        f"""
+        SELECT player_id, player_name, position, team, games,
+               fantasy_points_espn AS fantasy_points
+        FROM mlb_player_season_stats
+        WHERE season = ? AND position IN ({placeholders})
+        ORDER BY fantasy_points_espn DESC
+        LIMIT 500
+        """,
+        [season, *pos_filter],
+    ).df()
+
+
+render_sport_compare_page(
+    "mlb",
+    label="MLB",
+    caption="Compare **hitters to hitters** or **pitchers to pitchers** only.",
+    load_rows=_load_mlb_rows,
+)

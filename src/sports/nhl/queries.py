@@ -5,7 +5,11 @@ from __future__ import annotations
 import duckdb
 import pandas as pd
 
-from src.sports.nhl.positions import GOALIE_POSITION, SKATER_POSITION, coerce_leader_selection
+from src.sports.nhl.positions import (
+    LEADER_POSITIONS,
+    coerce_leader_selection,
+    expand_leader_positions,
+)
 
 
 def _fetch(conn: duckdb.DuckDBPyConnection, sql: str, params: list | None = None) -> pd.DataFrame:
@@ -28,7 +32,7 @@ def season_leaders(
 ) -> pd.DataFrame:
     del preset_key
     selected = coerce_leader_selection(positions)
-    pos = GOALIE_POSITION if selected == [GOALIE_POSITION] else SKATER_POSITION
+    expanded = expand_leader_positions(selected)
     query = """
         SELECT
             player_id, player_name, position, team, season, games,
@@ -36,9 +40,13 @@ def season_leaders(
             goals, assists, points, shots, hits, blocks,
             wins, saves, goals_against, shutouts
         FROM nhl_player_season_stats
-        WHERE season = ? AND position = ?
+        WHERE season = ?
     """
-    params: list = [season, pos]
+    params: list = [season]
+    if expanded and len(expanded) < len(LEADER_POSITIONS):
+        placeholders = ", ".join("?" * len(expanded))
+        query += f" AND position IN ({placeholders})"
+        params.extend(expanded)
     if min_games and min_games > 0:
         query += " AND games >= ?"
         params.append(min_games)

@@ -7,17 +7,33 @@ from urllib.parse import quote, urlencode
 import pandas as pd
 import streamlit as st
 
-# Multipage slug for app/pages/2_Player_Profile.py (numeric prefix stripped).
+# Streamlit url_path values from app/navigation.py (numeric filename prefixes stripped).
 PROFILE_PAGE_URL = "/Player_Profile"
+SPORT_PROFILE_URLS: dict[str, str] = {
+    "nfl": PROFILE_PAGE_URL,
+    "mlb": "/mlb_profile",
+    "nba": "/nba_profile",
+    "nhl": "/nhl_profile",
+}
+
+
+def profile_page_path(sport_id: str) -> str:
+    return SPORT_PROFILE_URLS.get(str(sport_id).strip().lower(), f"/{sport_id}_profile")
 
 _NAME_LINK_DISPLAY = r".*#(.+)$"
 
 
-def leader_profile_url(entity_id: str, season: int, display_name: str) -> str:
+def leader_profile_url(
+    entity_id: str,
+    season: int,
+    display_name: str,
+    *,
+    sport_id: str = "nfl",
+) -> str:
     """Build a same-app profile URL; fragment supplies LinkColumn display text."""
     query = urlencode({"entity": entity_id, "season": str(season)})
     fragment = quote(str(display_name), safe=" ")
-    return f"{PROFILE_PAGE_URL}?{query}#{fragment}"
+    return f"{profile_page_path(sport_id)}?{query}#{fragment}"
 
 
 def inject_name_profile_links(
@@ -27,10 +43,11 @@ def inject_name_profile_links(
     display_names: pd.Series,
     season: int,
     name_column: str,
+    sport_id: str = "nfl",
 ) -> pd.DataFrame:
     out = display_df.copy()
     out[name_column] = [
-        leader_profile_url(str(eid), int(season), str(name))
+        leader_profile_url(str(eid), int(season), str(name), sport_id=sport_id)
         for eid, name in zip(entity_ids, display_names, strict=True)
     ]
     return out
@@ -53,6 +70,7 @@ def render_leaders_table(
     display_names: pd.Series,
     season: int,
     name_column: str,
+    sport_id: str = "nfl",
 ) -> None:
     linked = inject_name_profile_links(
         display_df,
@@ -60,6 +78,7 @@ def render_leaders_table(
         display_names=display_names,
         season=season,
         name_column=name_column,
+        sport_id=sport_id,
     )
     st.caption(f"Click a **{name_column}** name to open **Player Profile**.")
     st.dataframe(

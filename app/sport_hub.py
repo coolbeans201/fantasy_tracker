@@ -19,11 +19,19 @@ def render_sport_hub(conn, meta: SportMeta) -> None:
 
     c1, c2, c3 = st.columns(3)
     with c1:
-        st.page_link(meta.leaders_page, label="Season Leaders", icon="📊")
+        st.page_link(
+            meta.leaders_page,
+            label=title_case_ui("Season Leaders"),
+            icon="📊",
+        )
     with c2:
-        st.page_link(meta.profile_page, label="Player Profile", icon="👤")
+        st.page_link(
+            meta.profile_page,
+            label=title_case_ui("Player Profile"),
+            icon="👤",
+        )
     with c3:
-        st.page_link(meta.compare_page, label="Compare", icon="⚖️")
+        st.page_link(meta.compare_page, label=title_case_ui("Compare"), icon="⚖️")
 
     st.divider()
     st.subheader(title_case_ui("Database status"))

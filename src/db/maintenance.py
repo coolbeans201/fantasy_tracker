@@ -275,6 +275,43 @@ def backfill_weekly_opponents(conn: duckdb.DuckDBPyConnection) -> None:
             conn.unregister("_dst_weekly_opp")
 
 
+def backfill_nba_positions(conn: duckdb.DuckDBPyConnection) -> None:
+    """Refresh NBA positions from season rosters (fixes SF default from ID mismatch)."""
+    try:
+        seasons = [
+            int(row[0])
+            for row in conn.execute(
+                "SELECT DISTINCT season FROM nba_player_season_stats ORDER BY season"
+            ).fetchall()
+        ]
+    except duckdb.Error:
+        return
+    if not seasons:
+        return
+
+    from src.sports.nba.player_positions import fetch_season_positions, normalize_player_id
+
+    for end_year in seasons:
+        mapping = fetch_season_positions(end_year)
+        if not mapping:
+            continue
+        frame = pd.DataFrame(
+            [{"player_id": pid, "position": pos} for pid, pos in mapping.items()]
+        )
+        conn.register("_nba_pos", frame)
+        conn.execute(
+            """
+            UPDATE nba_player_season_stats AS s
+            SET position = p.position
+            FROM _nba_pos AS p
+            WHERE s.season = ?
+              AND s.player_id = p.player_id
+            """,
+            [end_year],
+        )
+        conn.unregister("_nba_pos")
+
+
 def backfill_mlb_player_names(conn: duckdb.DuckDBPyConnection) -> None:
     """Fix MLB names stored with literal \\x UTF-8 escapes or Latin-1 mojibake."""
     try:
@@ -412,6 +449,7 @@ def backfill_dst_points_allowed(conn: duckdb.DuckDBPyConnection) -> None:
 __all__ = [
     "backfill_dst_points_allowed",
     "backfill_mlb_player_names",
+    "backfill_nba_positions",
     "backfill_weekly_opponents",
     "players_table_needs_rebuild",
     "rebuild_players_table",

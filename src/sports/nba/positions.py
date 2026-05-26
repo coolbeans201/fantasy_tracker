@@ -11,7 +11,7 @@ def leader_position_options() -> list[str]:
 
 
 def normalize_nba_position(pos: str | None) -> str | None:
-    """Map NBA.com / PlayerIndex labels to fantasy buckets (PG–C)."""
+    """Map NBA.com roster / PlayerIndex labels to fantasy buckets (PG–C)."""
     if not pos:
         return None
     p = str(pos).strip().upper().replace(" ", "")
@@ -19,10 +19,14 @@ def normalize_nba_position(pos: str | None) -> str | None:
         return p
     if p in ("C", "CENTER"):
         return "C"
-    if p in ("G", "GUARD"):
+    if p in ("PG", "POINTGUARD", "POINT-GUARD"):
+        return "PG"
+    if p in ("SG", "SHOOTINGGUARD", "SHOOTING-GUARD"):
         return "SG"
-    if p in ("F", "FORWARD"):
+    if p in ("SF", "SMALLFORWARD", "SMALL-FORWARD"):
         return "SF"
+    if p in ("PF", "POWERFORWARD", "POWER-FORWARD"):
+        return "PF"
     if "POINT" in p:
         return "PG"
     if "SHOOTING" in p:
@@ -31,21 +35,27 @@ def normalize_nba_position(pos: str | None) -> str | None:
         return "SF"
     if "POWER" in p:
         return "PF"
-    if "CENTER" in p:
+    if "CENTER" in p and "FORWARD" not in p:
         return "C"
     if "-" in p:
         parts = [x for x in p.split("-") if x]
+        if parts and parts[0] in LEADER_POSITIONS:
+            return parts[0]
+        if "PG" in parts:
+            return "PG"
         if "C" in parts and "F" not in parts and "G" not in parts:
             return "C"
+        if "C" in parts and "F" in parts:
+            return "PF"
         if "G" in parts and "F" in parts:
             return "SG"
         if "G" in parts:
             return "SG"
         if "F" in parts:
             return "SF"
-    if p in ("G", "GF"):
+    if p in ("G", "GUARD", "GF"):
         return "SG"
-    if p in ("F",):
+    if p in ("F", "FORWARD", "FC"):
         return "SF"
     return None
 

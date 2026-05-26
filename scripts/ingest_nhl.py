@@ -18,7 +18,12 @@ sys.path.insert(0, str(ROOT))
 
 from src.db.connection import get_connection, init_schema  # noqa: E402
 from src.db.sport_schema import NHL_PLAYER_SEASON_COLUMNS  # noqa: E402
-from src.sports.nhl.positions import GOALIE_POSITION, SKATER_POSITION  # noqa: E402
+from src.sports.nhl.positions import (  # noqa: E402
+    GOALIE_POSITION,
+    SKATER_POSITION,
+    is_goalie_position,
+    normalize_nhl_skater_position,
+)
 from src.sports.nhl.scoring import compute_goalie_fp, compute_skater_fp  # noqa: E402
 
 # NHL.com stats API hard-caps each response at 100 rows (see response "total").
@@ -124,7 +129,10 @@ def fetch_season(end_year: int) -> pd.DataFrame:
             s, "skaterFullName", "playerName", "name", default=""
         ).astype(str)
         out["season"] = end_year
-        out["position"] = SKATER_POSITION
+        pos_raw = _col(s, "positionCode", "position", default="")
+        out["position"] = pos_raw.map(normalize_nhl_skater_position)
+        out.loc[out["position"].isna(), "position"] = "F"
+        out.loc[out["position"].map(is_goalie_position), "position"] = "F"
         out["team"] = _col(s, "teamAbbrevs", "teamAbbrev", default="UNK").astype(str)
         out["games"] = _num(s, "gamesPlayed", "gp")
         out["goals"] = _num(s, "goals")
@@ -185,8 +193,8 @@ def ingest_season(end_year: int) -> None:
         [end_year, datetime.now(timezone.utc), len(frame)],
     )
     conn.close()
-    skaters = int((frame["position"] == SKATER_POSITION).sum())
-    goalies = int((frame["position"] == GOALIE_POSITION).sum())
+    goalies = int(frame["position"].map(is_goalie_position).sum())
+    skaters = len(frame) - goalies
     print(
         f"Ingested NHL season {end_year}: {len(frame)} rows "
         f"({skaters} skaters, {goalies} goalies)"

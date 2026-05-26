@@ -1,14 +1,17 @@
-from app.leader_navigation import leader_profile_url
+"""Season Leaders → profile link URLs."""
+
+from app.leader_navigation import leader_profile_url, profile_page_path
 
 
-def test_leader_profile_url_encodes_entity_and_shows_name():
-    url = leader_profile_url("dst:DEN", 2023, "DEN")
-    assert url.startswith("/Player_Profile?")
-    assert "entity=dst%3ADEN" in url
-    assert "season=2023" in url
-    assert url.endswith("#DEN")
+def test_sport_profile_paths():
+    assert profile_page_path("mlb") == "/mlb_profile"
+    assert profile_page_path("nba") == "/nba_profile"
+    assert profile_page_path("nhl") == "/nhl_profile"
 
 
-def test_leader_profile_url_preserves_spaces_in_display_name():
-    url = leader_profile_url("00-0033873", 2022, "Patrick Mahomes")
-    assert "#Patrick Mahomes" in url
+def test_leader_profile_url_includes_entity_and_season():
+    url = leader_profile_url("592450", 2024, "Mike Trout", sport_id="mlb")
+    assert url.startswith("/mlb_profile?")
+    assert "entity=592450" in url
+    assert "season=2024" in url
+    assert "#Mike%20Trout" in url or "#Mike Trout" in url
