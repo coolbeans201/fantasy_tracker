@@ -57,3 +57,26 @@ def compare_union_seasons(
     a = set(player_seasons_available(conn, sport_id, player_id_a))
     b = set(player_seasons_available(conn, sport_id, player_id_b))
     return sorted(a | b, reverse=True)
+
+
+def distinct_teams_for_seasons(
+    conn: duckdb.DuckDBPyConnection,
+    sport_id: str,
+    seasons: list[int],
+) -> list[str]:
+    """Distinct team abbreviations for one or more seasons (sorted)."""
+    if not seasons:
+        return []
+    table = stats_table(sport_id)
+    placeholders = ", ".join("?" * len(seasons))
+    rows = conn.execute(
+        f"""
+        SELECT DISTINCT team
+        FROM {table}
+        WHERE season IN ({placeholders})
+          AND team IS NOT NULL AND TRIM(CAST(team AS VARCHAR)) != ''
+        ORDER BY team
+        """,
+        [int(s) for s in seasons],
+    ).fetchall()
+    return [str(r[0]).strip() for r in rows if r[0] is not None]

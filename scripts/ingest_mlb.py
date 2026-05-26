@@ -29,7 +29,9 @@ from src.sports.mlb.positions import (  # noqa: E402
     is_pitcher_position,
     normalize_mlb_field_position,
 )
+from src.sports.mlb.consolidate import consolidate_mlb_season_frame  # noqa: E402
 from src.sports.mlb.scoring import compute_hitter_fp, compute_pitcher_fp  # noqa: E402
+from src.sports.mlb.teams import normalize_mlb_team  # noqa: E402
 from src.text_encoding import normalize_unicode_series  # noqa: E402
 
 # FanGraphs often returns 403; BRef works but is limited to seasons from 2008 onward.
@@ -83,70 +85,6 @@ def _fetch_bref_raw(year: int, *, batting: bool) -> pd.DataFrame:
         f"after {BREF_FETCH_ATTEMPTS} attempts"
     ) from last
 
-_MLB_SUM_COLS = (
-    "games",
-    "runs",
-    "home_runs",
-    "rbi",
-    "stolen_bases",
-    "walks",
-    "strikeouts_bat",
-    "wins",
-    "strikeouts_pitch",
-    "saves",
-    "innings_pitched",
-    "fantasy_points_espn",
-)
-
-
-def _consolidate_mlb_frame(frame: pd.DataFrame) -> pd.DataFrame:
-    """
-    One row per (player_id, season, position).
-    BRef can repeat IDs (two-way players, multi-team stints); sum counting stats.
-    """
-    if frame.empty:
-        return frame
-    out = frame.copy()
-    out["player_id"] = (
-        out["player_id"]
-        .astype(str)
-        .str.strip()
-        .str.replace(r"\.0$", "", regex=True)
-    )
-    out["position"] = out["position"].astype(str).str.strip().str.upper()
-    agg: dict[str, str] = {c: "sum" for c in _MLB_SUM_COLS if c in out.columns}
-    agg["player_name"] = "first"
-    agg["team"] = "first"
-    if "batting_avg" in out.columns:
-        agg["batting_avg"] = "mean"
-    if "era" in out.columns:
-        agg["era"] = "mean"
-    if "whip" in out.columns:
-        agg["whip"] = "mean"
-    grouped = (
-        out.groupby(["player_id", "season", "position"], as_index=False)
-        .agg(agg)
-        .reset_index(drop=True)
-    )
-    if "player_name" in grouped.columns:
-        grouped["player_name"] = normalize_unicode_series(grouped["player_name"])
-    if "fantasy_points_espn" in grouped.columns:
-        hit_mask = ~grouped["position"].map(is_pitcher_position)
-        pit_mask = grouped["position"].map(is_pitcher_position)
-        if hit_mask.any():
-            grouped.loc[hit_mask, "fantasy_points_espn"] = compute_hitter_fp(
-                grouped.loc[hit_mask]
-            )
-        if pit_mask.any():
-            grouped.loc[pit_mask, "fantasy_points_espn"] = compute_pitcher_fp(
-                grouped.loc[pit_mask]
-            )
-    grouped = grouped.drop_duplicates(
-        subset=["player_id", "season", "position"], keep="first"
-    )
-    return grouped[list(MLB_PLAYER_SEASON_COLUMNS)]
-
-
 def _series(raw: pd.DataFrame, *names: str) -> pd.Series:
     for name in names:
         if name in raw.columns:
@@ -185,7 +123,7 @@ def _batting_frame_bref(year: int, pos_by_name: dict[str, str]) -> pd.DataFrame:
     out["position"] = out["player_name"].map(
         lambda n: resolve_field_position(n, pos_by_name)
     )
-    out["team"] = _series(raw, "Tm", "Team", "team").fillna("UNK").astype(str)
+    out["team"] = _series(raw, "Tm", "Team", "team").map(normalize_mlb_team)
     out["games"] = games.loc[raw.index].astype(int)
     out["runs"] = pd.to_numeric(_series(raw, "R"), errors="coerce").fillna(0)
     out["home_runs"] = pd.to_numeric(_series(raw, "HR"), errors="coerce").fillna(0)
@@ -220,7 +158,7 @@ def _pitching_frame_bref(year: int) -> pd.DataFrame:
         lambda r: classify_pitcher_role(r["g"], r["gs"], r["sv"]),
         axis=1,
     )
-    out["team"] = _series(raw, "Tm", "Team", "team").fillna("UNK").astype(str)
+    out["team"] = _series(raw, "Tm", "Team", "team").map(normalize_mlb_team)
     out["games"] = games.loc[raw.index].astype(int)
     out["wins"] = pd.to_numeric(_series(raw, "W"), errors="coerce").fillna(0)
     out["strikeouts_pitch"] = pd.to_numeric(_series(raw, "SO"), errors="coerce").fillna(0)
@@ -252,7 +190,7 @@ def _batting_frame_fangraphs(year: int) -> pd.DataFrame:
         out["position"] = out["player_name"].map(
             lambda n: resolve_field_position(n, pos_by_name)
         )
-    out["team"] = raw.get("Team", pd.Series(["UNK"] * len(raw))).astype(str)
+    out["team"] = raw.get("Team", pd.Series(["UNK"] * len(raw))).map(normalize_mlb_team)
     out["games"] = pd.to_numeric(raw.get("G", 0), errors="coerce").fillna(0).astype(int)
     out["runs"] = pd.to_numeric(raw.get("R", 0), errors="coerce").fillna(0)
     out["home_runs"] = pd.to_numeric(raw.get("HR", 0), errors="coerce").fillna(0)
@@ -291,7 +229,7 @@ def _pitching_frame_fangraphs(year: int) -> pd.DataFrame:
         lambda r: classify_pitcher_role(r["g"], r["gs"], r["sv"]),
         axis=1,
     )
-    out["team"] = raw.get("Team", pd.Series(["UNK"] * len(raw))).astype(str)
+    out["team"] = raw.get("Team", pd.Series(["UNK"] * len(raw))).map(normalize_mlb_team)
     out["games"] = g.astype(int)
     out["wins"] = pd.to_numeric(raw.get("W", 0), errors="coerce").fillna(0)
     out["strikeouts_pitch"] = pd.to_numeric(raw.get("SO", 0), errors="coerce").fillna(0)
@@ -314,29 +252,31 @@ def _fetch_frames(year: int, source: str) -> tuple[pd.DataFrame, pd.DataFrame, s
             f"Use --source fangraphs for older years (may be blocked)."
         )
 
-    if source == "bref":
-        hit = _batting_frame_bref(year, pos_by_name)
-        time.sleep(2.0)
-        pit = _pitching_frame_bref(year)
-        if hit.empty and pit.empty:
-            raise BRefScrapeError(f"No Baseball Reference rows for {year}")
-        return hit, pit, "baseball_reference"
-
     if source == "fangraphs":
         hit = _batting_frame_fangraphs(year)
         time.sleep(0.5)
         pit = _pitching_frame_fangraphs(year)
         return hit, pit, "fangraphs"
 
-    # auto: BRef first, FanGraphs only on failure
+    # auto and bref: try BRef first; FanGraphs fallback when BRef has no table
+    # (IndexError in pybaseball = empty soup, often rate limits or bot blocks).
     try:
         hit = _batting_frame_bref(year, pos_by_name)
         time.sleep(2.0)
         pit = _pitching_frame_bref(year)
         if not hit.empty or not pit.empty:
             return hit, pit, "baseball_reference"
-    except (BRefScrapeError, IndexError, requests.exceptions.HTTPError, ValueError) as exc:
-        print(f"  Baseball Reference failed ({exc}); trying FanGraphs…")
+        raise BRefScrapeError(f"No Baseball Reference rows for {year}")
+    except (
+        BRefScrapeError,
+        IndexError,
+        requests.exceptions.RequestException,
+        ValueError,
+    ) as exc:
+        hint = (
+            " (BRef returned no stats table — wait and retry, or use --source fangraphs only)"
+        )
+        print(f"  Baseball Reference failed ({exc!r}); trying FanGraphs…{hint}")
 
     try:
         hit = _batting_frame_fangraphs(year)
@@ -346,8 +286,7 @@ def _fetch_frames(year: int, source: str) -> tuple[pd.DataFrame, pd.DataFrame, s
     except requests.exceptions.HTTPError as exc:
         raise RuntimeError(
             "Both Baseball Reference and FanGraphs failed. "
-            "FanGraphs often returns 403 — retry with --source bref for "
-            f"{BREF_MIN_SEASON}+."
+            "FanGraphs often returns 403 — wait and retry BRef, or try another network."
         ) from exc
 
 
@@ -356,7 +295,7 @@ def ingest_season(year: int, *, source: str = "auto") -> None:
     conn = get_connection()
     ensure_mlb_player_season_stats_schema(conn)
     hit, pit, used = _fetch_frames(year, source)
-    frame = _consolidate_mlb_frame(pd.concat([hit, pit], ignore_index=True))
+    frame = consolidate_mlb_season_frame(pd.concat([hit, pit], ignore_index=True))
     if frame.empty:
         print(f"No MLB data for {year} (source={used}).")
         conn.close()
@@ -391,7 +330,10 @@ def main() -> None:
         "--source",
         choices=("auto", "bref", "fangraphs"),
         default="auto",
-        help="Data source (default: Baseball Reference, fallback FanGraphs)",
+        help=(
+            "auto|bref: try Baseball Reference first, then FanGraphs if BRef has no table "
+            "(rate limits / blocks). fangraphs: FanGraphs only (may 403)."
+        ),
     )
     p.add_argument("--bulk", action="store_true", help="Ingest --from-year through --to-year")
     p.add_argument("--from-year", type=int, default=2008)
@@ -420,7 +362,7 @@ def main() -> None:
             time.sleep(delay)
         if skipped:
             print(f"Skipped {len(skipped)} season(s): {skipped}")
-            print("Re-run failed years, e.g. --season 2024 --source bref")
+            print("Re-run failed years, e.g. --season 2024 (auto/bref retry BRef then FanGraphs)")
     elif args.season is not None:
         ingest_season(args.season, source=args.source)
     else:

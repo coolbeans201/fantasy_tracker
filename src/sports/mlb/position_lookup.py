@@ -4,6 +4,7 @@ from __future__ import annotations
 
 import re
 import time
+from io import StringIO
 
 import pandas as pd
 
@@ -36,8 +37,11 @@ def field_positions_from_bref_standard(year: int) -> dict[str, str]:
     # BRef hides tables in HTML comments
     uncommented = re.sub(r"<!--|-->", "", html)
     try:
-        tables = pd.read_html(uncommented)
-    except ValueError:
+        try:
+            tables = pd.read_html(StringIO(uncommented), flavor="lxml")
+        except ImportError:
+            tables = pd.read_html(StringIO(uncommented), flavor="html5lib")
+    except (ValueError, ImportError):
         return {}
 
     mapping: dict[str, str] = {}

@@ -29,6 +29,7 @@ def season_leaders(
     *,
     positions: list[str] | None = None,
     min_games: int | None = None,
+    team: str | None = None,
 ) -> pd.DataFrame:
     del preset_key
     selected = coerce_leader_selection(positions)
@@ -50,6 +51,9 @@ def season_leaders(
     if min_games and min_games > 0:
         query += " AND games >= ?"
         params.append(min_games)
+    if team and str(team).strip() and str(team).strip().upper() != "ALL":
+        query += " AND team = ?"
+        params.append(str(team).strip())
     query += " ORDER BY fantasy_points_espn DESC NULLS LAST"
     return _fetch(conn, query, params)
 
@@ -62,7 +66,10 @@ def search_players(conn: duckdb.DuckDBPyConnection, query: str = "", limit: int 
             SELECT player_id, player_name, position, season AS last_season
             FROM nhl_player_season_stats
             WHERE player_name ILIKE ?
-            QUALIFY ROW_NUMBER() OVER (PARTITION BY player_id ORDER BY season DESC) = 1
+            QUALIFY ROW_NUMBER() OVER (
+                PARTITION BY player_id
+                ORDER BY season DESC, fantasy_points_espn DESC NULLS LAST
+            ) = 1
             LIMIT ?
             """,
             [f"%{query.strip()}%", limit],
@@ -72,7 +79,10 @@ def search_players(conn: duckdb.DuckDBPyConnection, query: str = "", limit: int 
         """
         SELECT player_id, player_name, position, season AS last_season
         FROM nhl_player_season_stats
-        QUALIFY ROW_NUMBER() OVER (PARTITION BY player_id ORDER BY season DESC) = 1
+        QUALIFY ROW_NUMBER() OVER (
+            PARTITION BY player_id
+            ORDER BY season DESC, fantasy_points_espn DESC NULLS LAST
+        ) = 1
         ORDER BY last_season DESC, player_name
         LIMIT ?
         """,

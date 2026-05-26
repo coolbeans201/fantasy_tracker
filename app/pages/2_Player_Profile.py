@@ -59,43 +59,10 @@ from src.ui_text import (
 )
 
 
-def _profile_season_scope_caption(seasons: list[int] | None) -> str | None:
-    if not seasons:
-        return None
-    if len(seasons) == 1:
-        return f"Season list: this player's **{seasons[0]}** season only."
-    return (
-        f"Season list: this player's career (**{seasons[-1]}–{seasons[0]}**, "
-        f"{len(seasons)} seasons)."
-    )
-
-
-def _sync_profile_sidebar_seasons(
-    entity_id: str,
-    available: list[int],
-    query_season: int | None,
-) -> None:
-    """Limit sidebar seasons to the selected entity; rerun once when the list changes."""
-    prev_entity = st.session_state.get("profile_seasons_entity")
-    st.session_state["profile_entity_seasons"] = available
-
-    if not available:
-        return
-
-    if entity_id != prev_entity:
-        st.session_state["profile_seasons_entity"] = entity_id
-        if query_season in available:
-            st.session_state["profile_season_default"] = query_season
-        else:
-            st.session_state["profile_season_default"] = max(available)
-        st.rerun()
-
-    current_default = st.session_state.get("profile_season_default")
-    if current_default not in available:
-        st.session_state["profile_season_default"] = (
-            query_season if query_season in available else max(available)
-        )
-        st.rerun()
+from app.sport_season_scope import (
+    profile_season_scope_caption,
+    sync_profile_sidebar_seasons,
+)
 
 
 def _resolve_detail_season(
@@ -387,10 +354,10 @@ init_sport_page("nfl")
 _query_season = query_param_season()
 controls = render_sidebar(
     sport="nfl",
-    default_season=st.session_state.get("profile_season_default") or _query_season,
-    season_options=st.session_state.get("profile_entity_seasons"),
-    season_scope_caption=_profile_season_scope_caption(
-        st.session_state.get("profile_entity_seasons")
+    default_season=st.session_state.get("profile_season_default_nfl") or _query_season,
+    season_options=st.session_state.get("profile_entity_seasons_nfl"),
+    season_scope_caption=profile_season_scope_caption(
+        st.session_state.get("profile_entity_seasons_nfl")
     ),
 )
 st.title("Player Profile")
@@ -428,7 +395,7 @@ if seasons_df.empty:
 _entity_seasons = sorted(
     (int(s) for s in seasons_df["season"].dropna().unique()), reverse=True
 )
-_sync_profile_sidebar_seasons(entity_id, _entity_seasons, _query_season)
+sync_profile_sidebar_seasons("nfl", entity_id, _entity_seasons, _query_season)
 
 weekly_all = entity_all_weekly(conn, entity_id, preset_key)
 seasons_df = overlay_preset_best_week(seasons_df, weekly_all, preset_key, dst=dst_view)

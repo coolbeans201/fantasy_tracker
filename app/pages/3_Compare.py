@@ -78,41 +78,7 @@ from src.season_selection import format_season_span
 from src.ui_text import page_title_suffix, section_h3, title_case_ui
 
 
-def _compare_season_scope_caption(seasons: list[int] | None) -> str | None:
-    if not seasons:
-        return None
-    if len(seasons) == 1:
-        return f"Season list: **{seasons[0]}** — a year at least one selection has data."
-    return (
-        f"Season list: any year either selection has data "
-        f"(**{seasons[-1]}–{seasons[0]}**, {len(seasons)} seasons)."
-    )
-
-
-def _sync_compare_sidebar_seasons(
-    entity_a: str,
-    entity_b: str,
-    sidebar_seasons: list[int],
-    *,
-    shared_seasons: list[int],
-) -> None:
-    """Scope sidebar seasons to the compare pair; rerun when the pair changes."""
-    pair_key = f"{entity_a}|{entity_b}"
-    st.session_state["compare_sidebar_seasons"] = sidebar_seasons
-    st.session_state["compare_shared_seasons"] = shared_seasons
-
-    if not sidebar_seasons:
-        return
-
-    if pair_key != st.session_state.get("compare_seasons_pair"):
-        st.session_state["compare_seasons_pair"] = pair_key
-        st.session_state["compare_season_default"] = max(sidebar_seasons)
-        st.rerun()
-
-    current = st.session_state.get("compare_season_default")
-    if current not in sidebar_seasons:
-        st.session_state["compare_season_default"] = max(sidebar_seasons)
-        st.rerun()
+from app.sport_season_scope import compare_season_scope_caption, sync_compare_sidebar_seasons
 
 
 st.set_page_config(page_title=page_title_suffix("NFL Compare Players"), layout="wide")
@@ -120,10 +86,11 @@ init_sport_page("nfl")
 
 controls = render_sidebar(
     sport="nfl",
-    default_season=st.session_state.get("compare_season_default"),
-    season_options=st.session_state.get("compare_sidebar_seasons"),
-    season_scope_caption=_compare_season_scope_caption(
-        st.session_state.get("compare_sidebar_seasons")
+    default_season=st.session_state.get("compare_season_default_nfl"),
+    season_options=st.session_state.get("compare_sidebar_seasons_nfl"),
+    season_scope_caption=compare_season_scope_caption(
+        st.session_state.get("compare_sidebar_seasons_nfl"),
+        shared_seasons=st.session_state.get("compare_shared_seasons_nfl"),
     ),
 )
 
@@ -174,7 +141,8 @@ if not player_a or not player_b:
 
 _shared_seasons = compare_shared_seasons(conn, player_a, player_b, preset_key)
 _union_seasons = compare_union_seasons(conn, player_a, player_b, preset_key)
-_sync_compare_sidebar_seasons(
+sync_compare_sidebar_seasons(
+    "nfl",
     player_a,
     player_b,
     _union_seasons,

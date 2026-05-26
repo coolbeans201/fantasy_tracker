@@ -10,11 +10,11 @@ from src.ui_text import title_case_ui
 def _load_mlb_rows(conn: duckdb.DuckDBPyConnection, season: int) -> pd.DataFrame:
     cohort = st.radio(
         title_case_ui("Cohort"),
-        [title_case_ui("Hitters"), title_case_ui("Pitchers")],
+        ["Hitters", "Pitchers"],
         horizontal=True,
         key="mlb_compare_cohort",
     )
-    if cohort == title_case_ui("Pitchers"):
+    if cohort == "Pitchers":
         pos_filter = PITCHER_POSITIONS
     else:
         pos_filter = FIELD_POSITIONS + ["H"]

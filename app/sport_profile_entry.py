@@ -15,6 +15,7 @@ def player_id_from_profile_link(
     stats_table: str,
     search_players,
     sidebar_season: int | None = None,
+    key_suffix: str = "",
 ) -> tuple[str, int, str]:
     """
     Resolve player from Leaders link or search UI.
@@ -26,16 +27,6 @@ def player_id_from_profile_link(
 
     if link_entity:
         player_id = str(link_entity).strip()
-        if link_season is not None:
-            st.caption(f"Loaded from Season Leaders: **{link_season}** (`{player_id}`)")
-        else:
-            st.caption(f"Loaded from link: `{player_id}`")
-        if st.button(
-            title_case_ui("Clear profile link"),
-            key=f"clear_profile_link_{stats_table}",
-        ):
-            st.query_params.clear()
-            st.rerun()
         row = conn.execute(
             f"""
             SELECT player_name FROM {stats_table}
@@ -46,10 +37,24 @@ def player_id_from_profile_link(
             [player_id],
         ).fetchone()
         name = str(row[0]) if row else player_id
+        if link_season is not None:
+            st.caption(f"Opened from Season Leaders: **{name}** ({int(link_season)}).")
+        else:
+            st.caption(f"Opened from Season Leaders: **{name}**.")
+        if st.button(
+            title_case_ui("Clear profile link"),
+            key=f"clear_profile_link_{stats_table}",
+        ):
+            st.query_params.clear()
+            st.rerun()
         season = int(link_season) if link_season is not None else _default_season(conn, stats_table)
         return player_id, season, name
 
-    q = st.text_input(title_case_ui("Search player"), "", key=f"profile_search_{stats_table}")
+    q = st.text_input(
+        title_case_ui("Search player"),
+        "",
+        key=f"profile_search_{stats_table}{key_suffix}",
+    )
     limit = 50 if q.strip() else 30
     players = search_players(conn, q, limit=limit)
     if players.empty:
@@ -58,7 +63,7 @@ def player_id_from_profile_link(
     pick = st.selectbox(
         title_case_ui("Player"),
         players["player_name"].tolist(),
-        key=f"profile_pick_{stats_table}",
+        key=f"profile_pick_{stats_table}{key_suffix}",
     )
     row = players[players["player_name"] == pick].iloc[0]
     if sidebar_season is not None:

@@ -10,11 +10,11 @@ from src.ui_text import title_case_ui
 def _load_nhl_rows(conn: duckdb.DuckDBPyConnection, season: int) -> pd.DataFrame:
     cohort = st.radio(
         title_case_ui("Cohort"),
-        [title_case_ui("Skaters"), title_case_ui("Goalies")],
+        ["Skaters", "Goalies"],
         horizontal=True,
         key="nhl_compare_cohort",
     )
-    if cohort == title_case_ui("Goalies"):
+    if cohort == "Goalies":
         return conn.execute(
             """
             SELECT player_id, player_name, position, team, games,

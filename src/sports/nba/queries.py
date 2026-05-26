@@ -25,6 +25,7 @@ def season_leaders(
     *,
     positions: list[str] | None = None,
     min_games: int | None = None,
+    team: str | None = None,
 ) -> pd.DataFrame:
     del preset_key
     selected = coerce_leader_selection(positions)
@@ -44,6 +45,9 @@ def season_leaders(
     if min_games and min_games > 0:
         query += " AND games >= ?"
         params.append(min_games)
+    if team and str(team).strip() and str(team).strip().upper() != "ALL":
+        query += " AND team = ?"
+        params.append(str(team).strip())
     query += " ORDER BY fantasy_points_espn DESC NULLS LAST"
     return _fetch(conn, query, params)
 

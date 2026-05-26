@@ -4,6 +4,7 @@ from app.leader_navigation import leader_profile_url, profile_page_path
 
 
 def test_sport_profile_paths():
+    assert profile_page_path("nfl") == "/nfl_profile"
     assert profile_page_path("mlb") == "/mlb_profile"
     assert profile_page_path("nba") == "/nba_profile"
     assert profile_page_path("nhl") == "/nhl_profile"

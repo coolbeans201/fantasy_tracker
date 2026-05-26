@@ -267,6 +267,14 @@ def _migrate_rankings_tables(conn: duckdb.DuckDBPyConnection) -> None:
         )
         """
     )
+    try:
+        conn.execute("ALTER TABLE ecr_draft ADD COLUMN sport VARCHAR DEFAULT 'nfl'")
+    except duckdb.Error:
+        pass
+    try:
+        conn.execute("ALTER TABLE ecr_weekly ADD COLUMN sport VARCHAR DEFAULT 'nfl'")
+    except duckdb.Error:
+        pass
 
 
 

@@ -16,7 +16,8 @@ PITCHER_POSITION = LEGACY_PITCHER
 
 
 def leader_position_options() -> list[str]:
-    return list(LEADER_POSITIONS)
+    """Hitters (H) and pitchers (P) shortcuts plus detailed positions."""
+    return [LEGACY_HITTER, LEGACY_PITCHER] + FIELD_POSITIONS + PITCHER_POSITIONS
 
 
 def is_pitcher_position(pos: str | None) -> bool:
@@ -128,16 +129,106 @@ def is_hitter_only_selection(positions: list[str] | None) -> bool:
     return bool(expanded) and all(p in FIELD_POSITIONS for p in expanded)
 
 
-def coerce_leader_selection(selected: list[str] | None, previous: list[str] | None = None) -> list[str]:
-    del previous
-    sel = [p for p in (selected or []) if p in LEADER_POSITIONS or p in (LEGACY_HITTER, LEGACY_PITCHER)]
+def _hitter_subset(selected: list[str]) -> list[str]:
+    if LEGACY_HITTER in selected:
+        return list(FIELD_POSITIONS)
+    field = [p for p in selected if p in FIELD_POSITIONS]
+    return field or list(FIELD_POSITIONS)
+
+
+def _pitcher_subset(selected: list[str]) -> list[str]:
+    if LEGACY_PITCHER in selected:
+        return list(PITCHER_POSITIONS)
+    pitchers = [p for p in selected if p in PITCHER_POSITIONS]
+    return pitchers or list(PITCHER_POSITIONS)
+
+
+def _is_pitcher_pick(pos: str) -> bool:
+    p = str(pos).strip().upper()
+    return p in PITCHER_POSITIONS or p == LEGACY_PITCHER
+
+
+def _is_hitter_pick(pos: str) -> bool:
+    p = str(pos).strip().upper()
+    return p in FIELD_POSITIONS or p == LEGACY_HITTER
+
+
+def coerce_leader_selection(
+    selected: list[str] | None,
+    previous: list[str] | None = None,
+) -> list[str]:
+    """
+    Season Leaders rules (mirrors NFL K/DST separation):
+    - Default → hitters only
+    - Pitcher picks (P, SP, RP) cannot mix with hitter picks
+    - Adding a pitcher token while on hitters → pitchers only; vice versa
+    """
+    sel = [
+        p
+        for p in (selected or [])
+        if p in LEADER_POSITIONS or p in (LEGACY_HITTER, LEGACY_PITCHER)
+    ]
+    prev = list(previous or [])
+
     if not sel:
         return list(FIELD_POSITIONS)
-    if LEGACY_PITCHER in sel and LEGACY_HITTER not in sel and not any(p in FIELD_POSITIONS for p in sel):
-        return list(PITCHER_POSITIONS)
-    if LEGACY_HITTER in sel and LEGACY_PITCHER not in sel and not any(p in PITCHER_POSITIONS for p in sel):
-        return list(FIELD_POSITIONS)
-    field = [p for p in sel if p in FIELD_POSITIONS]
-    if field and not any(p in PITCHER_POSITIONS for p in sel):
-        return field
-    return sel
+
+    added = set(sel) - set(prev)
+    removed = set(prev) - set(sel)
+
+    if LEGACY_PITCHER in added or any(_is_pitcher_pick(p) for p in added):
+        if not any(_is_hitter_pick(p) for p in added):
+            return _pitcher_subset(sel)
+
+    if LEGACY_HITTER in added or any(_is_hitter_pick(p) for p in added):
+        if not any(_is_pitcher_pick(p) for p in added):
+            return _hitter_subset(sel)
+
+    if added & set(PITCHER_POSITIONS) | ({LEGACY_PITCHER} & added):
+        if not (added & set(FIELD_POSITIONS)) and LEGACY_HITTER not in added:
+            return _pitcher_subset(sel)
+
+    if added & set(FIELD_POSITIONS) | ({LEGACY_HITTER} & added):
+        if not (added & set(PITCHER_POSITIONS)) and LEGACY_PITCHER not in added:
+            return _hitter_subset(sel)
+
+    if is_pitcher_only_selection(prev) and any(_is_hitter_pick(p) for p in added):
+        return _hitter_subset(sel)
+    if is_hitter_only_selection(prev) and any(_is_pitcher_pick(p) for p in added):
+        return _pitcher_subset(sel)
+
+    if is_pitcher_only_selection(sel):
+        return _pitcher_subset(sel)
+    if is_hitter_only_selection(sel):
+        return _hitter_subset(sel)
+
+    if is_pitcher_only_selection(prev):
+        return _pitcher_subset(prev)
+    if is_hitter_only_selection(prev):
+        return _hitter_subset(prev)
+
+    return list(FIELD_POSITIONS)
+
+
+# Compare page cohorts (hitters cross-position OK; not vs pitchers).
+COMPARE_GROUP_HITTER = "hitter"
+COMPARE_GROUP_PITCHER = "pitcher"
+
+
+def compare_cohort(position: str | None) -> str:
+    if is_pitcher_position(position):
+        return COMPARE_GROUP_PITCHER
+    return COMPARE_GROUP_HITTER
+
+
+def compare_incompatible_message(cohort_a: str, cohort_b: str) -> str:
+    labels = {
+        COMPARE_GROUP_HITTER: "hitters",
+        COMPARE_GROUP_PITCHER: "pitchers",
+    }
+    a = labels.get(cohort_a, cohort_a)
+    b = labels.get(cohort_b, cohort_b)
+    return (
+        f"These selections are not comparable: one side is **{a}** and the other is **{b}**. "
+        "Compare hitters to hitters or pitchers to pitchers only."
+    )

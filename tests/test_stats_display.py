@@ -19,6 +19,23 @@ def test_column_display_label_for_metadata_columns():
     assert column_display_label("rank_delta") == "Rank Δ"
 
 
+def test_rename_stats_for_display_subsets_requested_columns():
+    df = pd.DataFrame(
+        {
+            "player_id": ["669456"],
+            "player_name": ["Shane Bieber"],
+            "season": [2020],
+            "position": ["SP"],
+            "wins": [8],
+            "runs": [0],
+        }
+    )
+    out = rename_stats_for_display(df, columns=["season", "position", "wins"])
+    assert list(out.columns) == ["Season", "Position", "Wins"]
+    assert "player_id" not in out.columns
+    assert "runs" not in out.columns
+
+
 def test_rename_stats_for_display_all_columns():
     df = pd.DataFrame(
         {

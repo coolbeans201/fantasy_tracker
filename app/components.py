@@ -252,6 +252,13 @@ def render_sidebar(
     era_z = False
     if sport == "nfl":
         era_z = st.sidebar.checkbox(title_case_ui("Show peer Z (all-time era)"), value=False)
+    else:
+        era_z = st.sidebar.checkbox(
+            title_case_ui("Show peer Z (all-time era)"),
+            value=False,
+            help=f"Compare each row to all ingested {meta.label} seasons at the same position.",
+        )
+    if sport == "nfl":
         if st.sidebar.button(
             title_case_ui("Repair database"),
             help="Rebuild player index and refresh games played.",

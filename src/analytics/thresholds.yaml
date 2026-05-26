@@ -26,3 +26,31 @@ volume_gates:
     games: 8
   default:
     games: 8
+
+# Sport-specific peer Z gates (sidebar min games still applies to leaderboards).
+volume_gates_by_sport:
+  nba:
+    default:
+      games: 41             # ~50% of 82-game season
+    PG:
+      games: 41
+    SG:
+      games: 41
+    SF:
+      games: 41
+    PF:
+      games: 41
+    C:
+      games: 41
+  mlb:
+    default:
+      games: 50
+    SP:
+      innings_pitched: 50
+    RP:
+      innings_pitched: 20
+  nhl:
+    default:
+      games: 41             # ~50% of 82-game season
+    G:
+      games: 20

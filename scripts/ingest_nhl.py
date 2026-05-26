@@ -17,7 +17,12 @@ ROOT = Path(__file__).resolve().parents[1]
 sys.path.insert(0, str(ROOT))
 
 from src.db.connection import get_connection, init_schema  # noqa: E402
-from src.db.sport_schema import NHL_PLAYER_SEASON_COLUMNS  # noqa: E402
+from src.db.sport_schema import (  # noqa: E402
+    NHL_PLAYER_SEASON_COLUMNS,
+    ensure_nhl_player_season_stats_schema,
+)
+from src.sports.nhl.consolidate import consolidate_nhl_season_frame  # noqa: E402
+from src.sports.nhl.teams import normalize_nhl_team  # noqa: E402
 from src.sports.nhl.positions import (  # noqa: E402
     GOALIE_POSITION,
     SKATER_POSITION,
@@ -133,7 +138,7 @@ def fetch_season(end_year: int) -> pd.DataFrame:
         out["position"] = pos_raw.map(normalize_nhl_skater_position)
         out.loc[out["position"].isna(), "position"] = "F"
         out.loc[out["position"].map(is_goalie_position), "position"] = "F"
-        out["team"] = _col(s, "teamAbbrevs", "teamAbbrev", default="UNK").astype(str)
+        out["team"] = _col(s, "teamAbbrevs", "teamAbbrev", default="UNK").map(normalize_nhl_team)
         out["games"] = _num(s, "gamesPlayed", "gp")
         out["goals"] = _num(s, "goals")
         out["assists"] = _num(s, "assists")
@@ -155,7 +160,7 @@ def fetch_season(end_year: int) -> pd.DataFrame:
         ).astype(str)
         out["season"] = end_year
         out["position"] = GOALIE_POSITION
-        out["team"] = _col(g, "teamAbbrevs", "teamAbbrev", default="UNK").astype(str)
+        out["team"] = _col(g, "teamAbbrevs", "teamAbbrev", default="UNK").map(normalize_nhl_team)
         out["games"] = _num(g, "gamesPlayed", "gp")
         out["wins"] = _num(g, "wins")
         out["saves"] = _num(g, "saves")
@@ -167,12 +172,13 @@ def fetch_season(end_year: int) -> pd.DataFrame:
         frames.append(out)
     if not frames:
         return pd.DataFrame()
-    return pd.concat(frames, ignore_index=True)[list(NHL_PLAYER_SEASON_COLUMNS)]
+    return consolidate_nhl_season_frame(pd.concat(frames, ignore_index=True))
 
 
 def ingest_season(end_year: int) -> None:
     init_schema()
     conn = get_connection()
+    ensure_nhl_player_season_stats_schema(conn)
     frame = fetch_season(end_year)
     if frame.empty:
         print(f"No NHL data for season ending {end_year}.")

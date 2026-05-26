@@ -20,9 +20,13 @@ Open-source fantasy analytics for **completed seasons** — season leaders, play
 ### MLB · NBA · NHL
 
 - Per-sport hub: **Overview**, **Season Leaders**, **Player Profile**, **Compare** (under `app/pages/{mlb,nba,nhl}/`)
-- **MLB:** Field positions (**C, 1B, 2B, 3B, SS, LF, CF, RF, OF, DH**) and **SP/RP**; ESPN-style season FP; BRef stats + BRef/FanGraphs position lookup
-- **NBA:** Game-log season aggregates, positions from `PlayerIndex`, Half-PPR-style FP
-- **NHL:** Skater positions (**C, LW, RW, D, F**) and **G** for goalies; season FP from nhlpy (`positionCode`)
+- **Season window (sidebar):** Same **single / range / pick** modes as NFL for leaders, profile, and compare
+- **Season Leaders:** Position-aware stat columns; clickable **Player** → profile (`?entity=` / `?season=`); optional peer Z (season + era)
+- **Player Profile:** Career/window table, peak/prime highlights, season detail, game logs where ingested; **no internal `player_id` in tables**
+- **Compare:** **All-time**, **single season**, or **selected seasons**; **Skaters vs goalies** (NHL) and **Hitters vs pitchers** (MLB) cohort pickers — cross-cohort compare is blocked
+- **MLB:** Field positions (**H** shortcut or **C–DH**) and **SP/RP** (**P** shortcut); do **not** mix hitters and pitchers in one leaders filter. **Mid-season trades** = one row per team after re-ingest. **Career Z** omitted for **2020** (shortened season). BRef + FanGraphs ingest; BRef from **2008**
+- **NBA:** Season totals from `LeagueDashPlayerStats`; positions from rosters + `PlayerIndex`; optional per-player game logs (`scripts/ingest_nba_gamelogs.py`, slow)
+- **NHL:** Skater positions (**S** shortcut or **C, LW, RW, D, F**) and **G** for goalies; do **not** mix skaters and goalies. **Mid-season trades** = one row per team after re-ingest
 
 ### App
 
@@ -42,6 +46,8 @@ Open-source fantasy analytics for **completed seasons** — season leaders, play
 NFL weekly rows include **opponent** (`opponent_team`). D/ST **points allowed** are not in nflverse team box scores — we join **schedules** (`home_score` / `away_score`). **Yards allowed** = opponent **passing + rushing** yards in the same game.
 
 After schema or ingest-logic changes, **re-ingest** affected seasons and/or run sidebar **Repair database**.
+
+**Important:** MLB and NHL season tables now store **one row per player × season × position × team**. Re-ingest those sports after upgrading so trade splits and team filters work correctly.
 
 ## Quick start
 
@@ -98,9 +104,12 @@ Database: `data/fantasy_tracker.duckdb` (gitignored).
 | Compare careers across eras | **Compare** — **All-time** or **Selected seasons** |
 | Top defenses or kickers (ESPN scoring) | **NFL Season Leaders** — **DST** or **K** |
 | MLB/NBA/NHL season leaders | Sport hub → **Season Leaders** |
+| MLB hitters only vs pitchers only | **MLB Season Leaders** — **H** or **P** / **SP** / **RP** (not both) |
+| NHL skaters only vs goalies only | **NHL Season Leaders** — **S** or **G** (not both) |
+| Filter leaders by team (MLB/NHL) | **Team** dropdown — traded players appear once per stint |
 | Open a leader in full profile | Click **Player** name on Season Leaders (NFL, MLB, NBA, NHL) |
 | Share a profile link | **Player Profile** — URL `?entity=` / `?season=` |
-| Tune peer Z volume gates | `scripts/volume_report.py --season 2023` |
+| Tune peer Z volume gates | `scripts/volume_report.py --season 2023` (NFL) or `--sport mlb` / `nba` / `nhl` |
 
 ## Compare modes (NFL)
 
@@ -123,7 +132,8 @@ For multi-year compare, set sidebar **Season view** to **Season range** or **Pic
 | `scripts/ingest_nhl.py` | NHL (`--bulk --from-year 2005` typical) |
 | `scripts/ingest_rankings.py` | FantasyPros ECR (NFL) from nflverse |
 | `scripts/rankings_coverage.py` | Draft ECR vs stats ingest coverage |
-| `scripts/volume_report.py` | Peer-Z volume gate check (`--season 2023`) |
+| `scripts/volume_report.py` | Peer-Z volume gate check (`--season YEAR`, `--sport` nfl / mlb / nba / nhl) |
+| `scripts/ingest_nba_gamelogs.py` | NBA per-game rows for profiles (`--season`, optional `--limit-players`) |
 | `scripts/rebuild_players.py` | Rebuild NFL player search index |
 | `scripts/check_env.py` | Python arch, packages, DB presence |
 
@@ -148,8 +158,8 @@ Resume a failed bulk ingest from a year:
 | `scoring_presets` table (DuckDB) | Saved custom NFL offense presets |
 | [`src/scoring/kicker_presets.yaml`](src/scoring/kicker_presets.yaml) | ESPN kicker scoring |
 | [`src/scoring/dst_presets.yaml`](src/scoring/dst_presets.yaml) | ESPN D/ST (events + PA + yards tiers) |
-| [`config/settings.yaml`](config/settings.yaml) | Default min games (8) |
-| [`src/analytics/thresholds.yaml`](src/analytics/thresholds.yaml) | Volume gates for peer Z |
+| [`config/settings.yaml`](config/settings.yaml) | Default min games for leaderboards (8; NFL-oriented) |
+| [`src/analytics/thresholds.yaml`](src/analytics/thresholds.yaml) | Volume gates for peer Z (NFL positions + `volume_gates_by_sport` for MLB/NBA/NHL) |
 | [`.streamlit/config.toml`](.streamlit/config.toml) | Theme; `fileWatcherType = none` |
 
 Re-ingest after schema, position-filter, or D/ST/MLB ingest logic changes.
@@ -170,7 +180,7 @@ docs/                   Roadmaps and design notes
 data/                   Local DuckDB (gitignored)
 ```
 
-Docs: [docs/ENHANCEMENT_ROADMAP.md](docs/ENHANCEMENT_ROADMAP.md), [docs/CUSTOM_SCORING.md](docs/CUSTOM_SCORING.md), [docs/MULTISPORT_ROADMAP.md](docs/MULTISPORT_ROADMAP.md).
+Docs: [docs/ENHANCEMENT_ROADMAP.md](docs/ENHANCEMENT_ROADMAP.md), [docs/CUSTOM_SCORING.md](docs/CUSTOM_SCORING.md), [docs/MULTISPORT_ROADMAP.md](docs/MULTISPORT_ROADMAP.md), [docs/NEXT_SESSION_PLAN.md](docs/NEXT_SESSION_PLAN.md) (volume gates by sport, PA for MLB hitters, ingest performance).
 
 ## Troubleshooting
 
@@ -192,6 +202,11 @@ Run `.\.venv\Scripts\python.exe scripts\check_env.py` first.
 | NBA everyone shows **SF** | **Repair database** or re-ingest; positions come from **team rosters** (PlayerIndex join uses normalized player IDs) |
 | NHL partial seasons | nhlpy caps page size; re-ingest affected years with current `ingest_nhl.py` |
 | NHL positions all **S** / **G** | Re-ingest NHL; new ingests store **C, LW, RW, D** and **G** (legacy S still filters as skaters) |
+| MLB/NHL leader shows wrong team or one row per player | Re-ingest that sport — storage is per **team stint**; combined `2TM`/`TOT` rows are dropped when splits exist |
+| Mixed hitter + pitcher on MLB leaders | Use **H** or **P** only; UI coerces away from mixing (like NFL K/DST) |
+| Mixed skater + goalie on NHL leaders | Use **S** or **G** only; same coercion rules |
+| `ImportError` from `peer_z` on MLB/NBA/NHL leaders | Use `peer_z_sport` module (fixed in app); upgrade and restart Streamlit |
+| Profile shows raw column names or wrong stats | Restart app; MLB/NHL profiles use role-specific stat columns (hitting vs pitching, etc.) |
 | Streamlit nested pages / duplicate URLs | Requires Streamlit **≥1.36**; entrypoint is `app/Home.py` |
 | Custom preset not on pages | Save preset, select **★** in **Scoring** |
 

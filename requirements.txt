@@ -8,6 +8,10 @@ nflreadpy>=0.1.5
 pyyaml>=6.0
 rapidfuzz>=3.6
 matplotlib>=3.8
+# MLB BRef position scrape (pandas.read_html)
+html5lib>=1.1
+beautifulsoup4>=4.12
+lxml>=5.0
 # Multi-sport ingest (optional until you ingest MLB/NBA/NHL)
 pybaseball>=2.2.7
 nba_api>=1.4.1

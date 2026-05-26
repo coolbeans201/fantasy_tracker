@@ -2,6 +2,7 @@
 
 from __future__ import annotations
 
+import duckdb
 import streamlit as st
 
 from src.db.connection import db_exists, get_ingest_summary, list_sport_seasons
@@ -50,6 +51,14 @@ def render_sport_hub(conn, meta: SportMeta) -> None:
                 )
         elif seasons:
             st.success(f"**{len(seasons)}** seasons loaded. Latest: **{seasons[0]}**.")
+            try:
+                row = conn.execute(
+                    f"SELECT COUNT(*) FROM {meta.manifest_table}"
+                ).fetchone()
+                if row and row[0]:
+                    st.caption(f"Ingest manifest: **{row[0]}** season entries.")
+            except duckdb.Error:
+                pass
             st.caption(f"Seasons: {', '.join(str(s) for s in seasons)}")
         else:
             st.info(f"No {meta.label} seasons ingested yet.")

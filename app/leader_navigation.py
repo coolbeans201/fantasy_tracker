@@ -7,10 +7,9 @@ from urllib.parse import quote, urlencode
 import pandas as pd
 import streamlit as st
 
-# Streamlit url_path values from app/navigation.py (numeric filename prefixes stripped).
-PROFILE_PAGE_URL = "/Player_Profile"
+# Paths must match app/navigation.py: st.Page(..., url_path=f"{sport_id}_profile").
 SPORT_PROFILE_URLS: dict[str, str] = {
-    "nfl": PROFILE_PAGE_URL,
+    "nfl": "/nfl_profile",
     "mlb": "/mlb_profile",
     "nba": "/nba_profile",
     "nhl": "/nhl_profile",

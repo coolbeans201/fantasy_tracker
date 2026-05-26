@@ -3,7 +3,12 @@
 from __future__ import annotations
 
 from dataclasses import dataclass
+
 import duckdb
+import pandas as pd
+
+from src.settings import get_min_games_default
+from src.sports.window_leaders import aggregate_leader_window
 
 DEFAULT_SPORT = "nfl"
 
@@ -162,6 +167,51 @@ def leader_position_options(sport_id: str) -> list[str]:
     return []
 
 
+def season_leaders_window(
+    conn: duckdb.DuckDBPyConnection,
+    sport_id: str,
+    seasons: list[int],
+    preset_key: str,
+    *,
+    positions: list[str] | None = None,
+    min_games: int | None = None,
+):
+    """
+    Window leaderboard for a non-NFL sport: sum FP and games across seasons
+    (min games applied per season before aggregation).
+    """
+    if sport_id == "nfl":
+        from src.db import queries as nfl_queries
+
+        return nfl_queries.season_leaders_window(
+            conn, seasons, preset_key, positions=positions, min_games=min_games
+        )
+    if not seasons:
+        return pd.DataFrame()
+    if min_games is None:
+        min_games = get_min_games_default()
+
+    frames: list[pd.DataFrame] = []
+    for yr in seasons:
+        part = season_leaders(
+            conn,
+            sport_id,
+            int(yr),
+            preset_key,
+            positions=positions,
+            min_games=min_games,
+        )
+        if not part.empty:
+            part = part.copy()
+            part["season"] = int(yr)
+            frames.append(part)
+
+    if not frames:
+        return pd.DataFrame()
+    per_season = pd.concat(frames, ignore_index=True)
+    return aggregate_leader_window(per_season)
+
+
 def season_leaders(
     conn: duckdb.DuckDBPyConnection,
     sport_id: str,
@@ -189,18 +239,33 @@ def season_leaders(
         from src.sports.mlb import queries as mlb_q
 
         return mlb_q.season_leaders(
-            conn, season, preset_key, positions=positions, min_games=min_games
+            conn,
+            season,
+            preset_key,
+            positions=positions,
+            min_games=min_games,
+            team=team,
         )
     if sport_id == "nba":
         from src.sports.nba import queries as nba_q
 
         return nba_q.season_leaders(
-            conn, season, preset_key, positions=positions, min_games=min_games
+            conn,
+            season,
+            preset_key,
+            positions=positions,
+            min_games=min_games,
+            team=team,
         )
     if sport_id == "nhl":
         from src.sports.nhl import queries as nhl_q
 
         return nhl_q.season_leaders(
-            conn, season, preset_key, positions=positions, min_games=min_games
+            conn,
+            season,
+            preset_key,
+            positions=positions,
+            min_games=min_games,
+            team=team,
         )
     return None

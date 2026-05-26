@@ -133,6 +133,10 @@ STAT_LABELS: dict[str, str] = {
     "home_runs": "Home Runs",
     "rbi": "RBI",
     "stolen_bases": "Stolen Bases",
+    "walks": "Walks",
+    "strikeouts_bat": "Strikeouts (Batting)",
+    "batting_avg": "Batting Avg",
+    "whip": "WHIP",
     "wins": "Wins",
     "strikeouts_pitch": "Strikeouts (Pitching)",
     "saves": "Saves",
@@ -554,10 +558,13 @@ def format_stats_dataframe_for_display(
 def rename_stats_for_display(df, columns: list[str] | None = None):
     """Return copy with human-readable column names for UI tables."""
     out = collapse_fumble_columns_df(df)
-    cols = columns or list(out.columns)
-    rename_map = {
-        c: column_display_label(c) for c in cols if c in out.columns
-    }
+    if columns is None:
+        cols = list(out.columns)
+    else:
+        cols = [c for c in columns if c in out.columns]
+    if cols:
+        out = out.loc[:, cols].copy()
+    rename_map = {c: column_display_label(c) for c in cols}
     out = out.rename(columns=rename_map)
     if "stat" in out.columns:
         out["stat"] = out["stat"].apply(
