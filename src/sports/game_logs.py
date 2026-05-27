@@ -27,6 +27,26 @@ def _table_exists(conn: duckdb.DuckDBPyConnection, table: str) -> bool:
         return False
 
 
+def order_game_log_by_date(df: pd.DataFrame) -> pd.DataFrame:
+    """Sort rows chronologically and set game_index 1..n per player."""
+    if df.empty:
+        return df
+    out = df.copy()
+    out.columns = [str(c).lower() for c in out.columns]
+    sort_date = pd.to_datetime(out.get("game_date"), errors="coerce")
+    out["_sort_date"] = sort_date
+    if "player_id" in out.columns:
+        out = out.sort_values(
+            ["player_id", "_sort_date", "game_id"],
+            na_position="last",
+        )
+        out["game_index"] = out.groupby("player_id", sort=False).cumcount() + 1
+    else:
+        out = out.sort_values(["_sort_date", "game_id"], na_position="last")
+        out["game_index"] = range(1, len(out) + 1)
+    return out.drop(columns=["_sort_date"])
+
+
 def load_player_game_log(
     conn: duckdb.DuckDBPyConnection,
     sport_id: str,
@@ -51,4 +71,4 @@ def load_player_game_log(
     df.columns = [str(c).lower() for c in df.columns]
     if "fantasy_points_espn" in df.columns and "fantasy_points" not in df.columns:
         df["fantasy_points"] = df["fantasy_points_espn"]
-    return df
+    return order_game_log_by_date(df)

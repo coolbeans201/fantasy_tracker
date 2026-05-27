@@ -11,19 +11,34 @@ from src.sports.player_seasons import stats_table
 from src.text_encoding import normalize_unicode_series
 
 
+def sort_career_rows(df: pd.DataFrame) -> pd.DataFrame:
+    """Chronological order (oldest season first), matching NFL player profile."""
+    if df.empty or "season" not in df.columns:
+        return df
+    sort_cols = ["season"]
+    ascending = [True]
+    for col in ("team", "position"):
+        if col in df.columns:
+            sort_cols.append(col)
+            ascending.append(True)
+    return df.sort_values(sort_cols, ascending=ascending, na_position="last").reset_index(
+        drop=True
+    )
+
+
 def player_career_seasons(
     conn: duckdb.DuckDBPyConnection,
     sport_id: str,
     player_id: str,
 ) -> pd.DataFrame:
-    """All season rows for a player (newest first), with fantasy_points alias."""
+    """All season rows for a player (oldest first), with fantasy_points alias."""
     table = stats_table(sport_id)
     df = conn.execute(
         f"""
         SELECT *
         FROM {table}
         WHERE player_id = ?
-        ORDER BY season DESC
+        ORDER BY season ASC, team ASC NULLS LAST, position ASC NULLS LAST
         """,
         [str(player_id).strip()],
     ).df()
@@ -35,7 +50,8 @@ def player_career_seasons(
     if "fantasy_points_espn" in df.columns:
         df["fantasy_points"] = df["fantasy_points_espn"]
     df = add_fp_per_game(df)
-    return compute_career_z_sport(df, sport_id)
+    df = compute_career_z_sport(df, sport_id)
+    return sort_career_rows(df)
 
 
 def compare_player_seasons(

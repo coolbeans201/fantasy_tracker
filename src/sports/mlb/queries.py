@@ -12,6 +12,7 @@ from src.sports.mlb.positions import (
     expand_leader_positions,
     is_pitcher_only_selection,
 )
+from src.sports.player_search import search_players_table
 from src.text_encoding import normalize_unicode_series
 
 
@@ -88,33 +89,15 @@ def season_leaders(
 
 
 def search_players(conn: duckdb.DuckDBPyConnection, query: str = "", limit: int = 200) -> pd.DataFrame:
-    if query.strip():
-        return _fetch(
-            conn,
-            """
-            SELECT player_id, player_name, position, season AS last_season
-            FROM mlb_player_season_stats
-            WHERE player_name ILIKE ?
-            QUALIFY ROW_NUMBER() OVER (
-                PARTITION BY player_id
-                ORDER BY season DESC, fantasy_points_espn DESC NULLS LAST
-            ) = 1
-            ORDER BY player_name
-            LIMIT ?
-            """,
-            [f"%{query.strip()}%", limit],
-        )
-    return _fetch(
+    return search_players_table(
         conn,
-        """
-        SELECT player_id, player_name, position, season AS last_season
-        FROM mlb_player_season_stats
-        QUALIFY ROW_NUMBER() OVER (
-            PARTITION BY player_id
-            ORDER BY season DESC, fantasy_points_espn DESC NULLS LAST
-        ) = 1
-        ORDER BY last_season DESC, player_name
-        LIMIT ?
-        """,
-        [limit],
+        "mlb_player_season_stats",
+        query,
+        limit=limit,
+        qualify=(
+            "ROW_NUMBER() OVER ("
+            "PARTITION BY player_id "
+            "ORDER BY season DESC, fantasy_points_espn DESC NULLS LAST"
+            ") = 1"
+        ),
     )

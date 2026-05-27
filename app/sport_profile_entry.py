@@ -16,7 +16,8 @@ def player_id_from_profile_link(
     search_players,
     sidebar_season: int | None = None,
     key_suffix: str = "",
-) -> tuple[str, int, str]:
+    stop_if_incomplete: bool = True,
+) -> tuple[str | None, int | None, str | None]:
     """
     Resolve player from Leaders link or search UI.
 
@@ -55,11 +56,19 @@ def player_id_from_profile_link(
         "",
         key=f"profile_search_{stats_table}{key_suffix}",
     )
-    limit = 50 if q.strip() else 30
-    players = search_players(conn, q, limit=limit)
+    query = q.strip()
+    if len(query) < 2:
+        st.caption("Type at least 2 characters to search players.")
+        if stop_if_incomplete:
+            st.stop()
+        return None, None, None
+    limit = 50
+    players = search_players(conn, query, limit=limit)
     if players.empty:
         st.warning("No players found.")
-        st.stop()
+        if stop_if_incomplete:
+            st.stop()
+        return None, None, None
     pick = st.selectbox(
         title_case_ui("Player"),
         players["player_name"].tolist(),

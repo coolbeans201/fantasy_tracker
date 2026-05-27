@@ -4,6 +4,7 @@ from __future__ import annotations
 
 import codecs
 import re
+import unicodedata
 from typing import Any
 
 import pandas as pd
@@ -59,3 +60,19 @@ def normalize_unicode_text(value: Any) -> str:
 
 def normalize_unicode_series(series: pd.Series) -> pd.Series:
     return series.map(normalize_unicode_text)
+
+
+def fold_for_search(value: Any) -> str:
+    """Lowercase name with accents removed for substring / token matching."""
+    text = normalize_unicode_text(value).casefold()
+    decomposed = unicodedata.normalize("NFKD", text)
+    return "".join(c for c in decomposed if not unicodedata.combining(c))
+
+
+def player_name_matches_query(name: str, query: str) -> bool:
+    """True when every query token appears in the name (accent-insensitive)."""
+    folded_name = fold_for_search(name)
+    tokens = [t for t in fold_for_search(query).split() if t]
+    if not tokens:
+        return False
+    return all(token in folded_name for token in tokens)

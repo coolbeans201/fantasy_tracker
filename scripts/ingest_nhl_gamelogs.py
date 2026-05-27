@@ -39,13 +39,17 @@ def main() -> None:
     init_schema()
     conn = get_connection()
     try:
-        rows = ingest_season_gamelogs(
+        summary = ingest_season_gamelogs(
             conn,
             args.season,
             limit_players=args.limit_players,
             delay_sec=max(0.0, float(args.delay)),
         )
-        print(f"Ingested NHL game logs for {args.season}: {rows} rows")
+        print(
+            f"Ingested NHL game logs for {args.season}: {summary['rows']} rows "
+            f"({summary['players_loaded']}/{summary['players_total']} players, "
+            f"skipped={summary['players_skipped']})"
+        )
     finally:
         conn.close()
 

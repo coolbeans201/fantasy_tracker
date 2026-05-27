@@ -64,6 +64,7 @@ def _pick_players(
             stats_table=_stats_table(sport_id),
             search_players=_search_fn(sport_id),
             sidebar_season=season,
+            stop_if_incomplete=False,
         )
     with col2:
         st.caption("Player B")
@@ -72,8 +73,11 @@ def _pick_players(
             stats_table=_stats_table(sport_id),
             search_players=_search_fn(sport_id),
             sidebar_season=season,
+            stop_if_incomplete=False,
         )
-    return pid_a, pid_b, name_a, name_b
+    if not pid_a or not pid_b:
+        return None
+    return pid_a, pid_b, name_a or pid_a, name_b or pid_b
 
 
 def _stats_table(sport_id: str) -> str:
@@ -169,6 +173,7 @@ def render_sport_compare_page(
                 search_players=_search_fn(sport_id),
                 sidebar_season=picker_season,
                 key_suffix="_cmp_a",
+                stop_if_incomplete=False,
             )
         with col2:
             st.markdown(f"**{title_case_ui('Player B')}**")
@@ -178,7 +183,18 @@ def render_sport_compare_page(
                 search_players=_search_fn(sport_id),
                 sidebar_season=picker_season,
                 key_suffix="_cmp_b",
+                stop_if_incomplete=False,
             )
+        if not player_a or not player_b:
+            missing = []
+            if not player_a:
+                missing.append(title_case_ui("Player A"))
+            if not player_b:
+                missing.append(title_case_ui("Player B"))
+            st.info(f"Select {' and '.join(missing)} to compare.")
+            st.stop()
+        name_a = name_a or player_a
+        name_b = name_b or player_b
     else:
         picked = _pick_players(conn, sport_id, load_rows=load_rows, season=picker_season)
         if picked is None:

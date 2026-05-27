@@ -124,6 +124,6 @@ def resolve_field_position(
     player_name: str,
     pos_by_name: dict[str, str],
     *,
-    default: str = "UTIL",
-) -> str:
+    default: str | None = None,
+) -> str | None:
     return pos_by_name.get(_name_key(player_name), default)

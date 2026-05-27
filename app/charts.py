@@ -119,6 +119,72 @@ def season_fantasy_points_chart(
     plt.close(fig)
 
 
+def game_log_fantasy_points_chart(
+    games_df: pd.DataFrame,
+    *,
+    y_column: str = "fantasy_points",
+    y_label: str = "Fantasy Points",
+    x_label: str = "Game # (chronological)",
+) -> None:
+    """Line chart of fantasy points by game in date order (no boom/bust bands)."""
+    if games_df.empty or y_column not in games_df.columns:
+        st.caption("No game log chart data.")
+        return
+
+    plot_df = games_df.copy()
+    sort_date = pd.to_datetime(plot_df.get("game_date"), errors="coerce")
+    if sort_date.notna().any():
+        plot_df["_sort_date"] = sort_date
+        plot_df = plot_df.sort_values("_sort_date", na_position="last").drop(
+            columns=["_sort_date"]
+        )
+    elif "game_id" in plot_df.columns:
+        plot_df = plot_df.sort_values("game_id")
+    plot_df = plot_df.reset_index(drop=True)
+    x_vals = range(1, len(plot_df) + 1)
+
+    fp_vals = pd.to_numeric(plot_df[y_column], errors="coerce")
+    n = len(plot_df)
+    width = max(10.0, min(n * 0.22, 28.0))
+    show_markers = n <= 40
+
+    fig, ax = plt.subplots(figsize=(width, 3.5))
+    ax.plot(
+        x_vals,
+        fp_vals,
+        marker="o" if show_markers else None,
+        markersize=4 if show_markers else 0,
+        linewidth=2,
+        color="#3366cc",
+        zorder=2,
+    )
+
+    season_avg = float(fp_vals.mean()) if len(fp_vals) and fp_vals.notna().any() else None
+    if season_avg is not None and season_avg == season_avg:
+        ax.axhline(
+            season_avg,
+            color="#888888",
+            linestyle="--",
+            linewidth=1,
+            label=f"Season avg ({season_avg:.1f})",
+            zorder=1,
+        )
+        ax.legend(loc="best", fontsize=8)
+
+    ax.set_xlabel(x_label)
+    ax.set_ylabel(y_label)
+    if n <= 30:
+        step = 2 if n > 15 else 1
+        tick_x = list(x_vals)[::step]
+        ax.set_xticks(tick_x)
+        if step > 1 or n > 15:
+            ax.tick_params(axis="x", rotation=0)
+    ax.grid(True, alpha=0.3)
+    fig.tight_layout()
+    st.pyplot(fig, use_container_width=True)
+    plt.close(fig)
+
+
 def weekly_fantasy_points_chart(
     weekly_df: pd.DataFrame,
     *,

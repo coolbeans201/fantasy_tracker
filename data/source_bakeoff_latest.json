@@ -1,0 +1,47 @@
+{
+  "sport": "nba",
+  "season": 2025,
+  "limit_players": 40,
+  "results": [
+    {
+      "name": "nba-position/playerindex",
+      "metric": "position-ids",
+      "elapsed_sec": 1.04,
+      "successes": 12,
+      "failures": 0,
+      "notes": "single API request"
+    },
+    {
+      "name": "nba-position/teamrosters",
+      "metric": "position-ids",
+      "elapsed_sec": 23.206,
+      "successes": 68,
+      "failures": 0,
+      "notes": "multi-team API requests"
+    },
+    {
+      "name": "nba-position/leaguedash-player-position",
+      "metric": "sample-players-covered",
+      "elapsed_sec": 0.106,
+      "successes": 0,
+      "failures": 40,
+      "notes": "no PLAYER_POSITION column"
+    },
+    {
+      "name": "nba-gamelog/playergamelog",
+      "metric": "players-with-rows",
+      "elapsed_sec": 43.708,
+      "successes": 39,
+      "failures": 1,
+      "notes": "sampled=40 players"
+    },
+    {
+      "name": "nba-gamelog/playergamelogs",
+      "metric": "players-covered",
+      "elapsed_sec": 0.69,
+      "successes": 40,
+      "failures": 0,
+      "notes": "rows=26306"
+    }
+  ]
+}

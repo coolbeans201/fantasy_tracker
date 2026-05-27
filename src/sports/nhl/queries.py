@@ -10,6 +10,7 @@ from src.sports.nhl.positions import (
     coerce_leader_selection,
     expand_leader_positions,
 )
+from src.sports.player_search import search_players_table
 
 
 def _fetch(conn: duckdb.DuckDBPyConnection, sql: str, params: list | None = None) -> pd.DataFrame:
@@ -59,32 +60,15 @@ def season_leaders(
 
 
 def search_players(conn: duckdb.DuckDBPyConnection, query: str = "", limit: int = 200) -> pd.DataFrame:
-    if query.strip():
-        return _fetch(
-            conn,
-            """
-            SELECT player_id, player_name, position, season AS last_season
-            FROM nhl_player_season_stats
-            WHERE player_name ILIKE ?
-            QUALIFY ROW_NUMBER() OVER (
-                PARTITION BY player_id
-                ORDER BY season DESC, fantasy_points_espn DESC NULLS LAST
-            ) = 1
-            LIMIT ?
-            """,
-            [f"%{query.strip()}%", limit],
-        )
-    return _fetch(
+    return search_players_table(
         conn,
-        """
-        SELECT player_id, player_name, position, season AS last_season
-        FROM nhl_player_season_stats
-        QUALIFY ROW_NUMBER() OVER (
-            PARTITION BY player_id
-            ORDER BY season DESC, fantasy_points_espn DESC NULLS LAST
-        ) = 1
-        ORDER BY last_season DESC, player_name
-        LIMIT ?
-        """,
-        [limit],
+        "nhl_player_season_stats",
+        query,
+        limit=limit,
+        qualify=(
+            "ROW_NUMBER() OVER ("
+            "PARTITION BY player_id "
+            "ORDER BY season DESC, fantasy_points_espn DESC NULLS LAST"
+            ") = 1"
+        ),
     )

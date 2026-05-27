@@ -6,6 +6,7 @@ import duckdb
 import pandas as pd
 
 from src.sports.nba.positions import coerce_leader_selection
+from src.sports.player_search import search_players_table
 
 
 def _fetch(conn: duckdb.DuckDBPyConnection, sql: str, params: list | None = None) -> pd.DataFrame:
@@ -53,26 +54,4 @@ def season_leaders(
 
 
 def search_players(conn: duckdb.DuckDBPyConnection, query: str = "", limit: int = 200) -> pd.DataFrame:
-    if query.strip():
-        return _fetch(
-            conn,
-            """
-            SELECT player_id, player_name, position, season AS last_season
-            FROM nba_player_season_stats
-            WHERE player_name ILIKE ?
-            QUALIFY ROW_NUMBER() OVER (PARTITION BY player_id ORDER BY season DESC) = 1
-            LIMIT ?
-            """,
-            [f"%{query.strip()}%", limit],
-        )
-    return _fetch(
-        conn,
-        """
-        SELECT player_id, player_name, position, season AS last_season
-        FROM nba_player_season_stats
-        QUALIFY ROW_NUMBER() OVER (PARTITION BY player_id ORDER BY season DESC) = 1
-        ORDER BY last_season DESC, player_name
-        LIMIT ?
-        """,
-        [limit],
-    )
+    return search_players_table(conn, "nba_player_season_stats", query, limit=limit)

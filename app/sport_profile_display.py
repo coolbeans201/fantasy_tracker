@@ -12,6 +12,11 @@ PROFILE_HIDDEN_COLUMNS = frozenset(
     {"player_id", "player_name", "fantasy_points_espn"}
 )
 
+# Game log tables: internal keys and redundant date/index (season is in the section title).
+PROFILE_GAMELOG_HIDDEN_COLUMNS = frozenset(
+    {"game_id", "game_date", "game_index", "season"}
+)
+
 PROFILE_META_COLUMNS = [
     "season",
     "team",
@@ -26,13 +31,20 @@ def format_profile_table(
     df: pd.DataFrame,
     *,
     columns: list[str] | None = None,
+    hide_columns: frozenset[str] | None = None,
 ) -> pd.DataFrame:
     """Title-case column labels; hide internal ids."""
     return format_stats_dataframe_for_display(
         df,
-        hide_columns=PROFILE_HIDDEN_COLUMNS,
+        hide_columns=hide_columns or PROFILE_HIDDEN_COLUMNS,
         columns=columns,
     )
+
+
+def format_game_log_table(df: pd.DataFrame) -> pd.DataFrame:
+    """Profile game log: hide internal ids and game_id/date/index (season is in the heading)."""
+    hidden = PROFILE_HIDDEN_COLUMNS | PROFILE_GAMELOG_HIDDEN_COLUMNS
+    return format_profile_table(df, hide_columns=hidden)
 
 
 def profile_export_columns(sport_id: str, career: pd.DataFrame) -> list[str]:
@@ -62,6 +74,7 @@ def career_season_totals(career: pd.DataFrame) -> pd.DataFrame:
     from src.analytics.metrics import add_fp_per_game
 
     out = career.groupby("season", as_index=False).agg(**agg)
+    out = out.sort_values("season", ascending=True)
     return add_fp_per_game(out)
 
 
@@ -96,9 +109,12 @@ def render_grouped_career_stats(
     else:
         groups = [(None, career)]
 
+    from src.sports.player_career import sort_career_rows
+
     for label, subset in groups:
         if subset.empty:
             continue
+        subset = sort_career_rows(subset)
         if label:
             container.markdown(f"**{label}**")
         pos = subset.iloc[0]["position"]

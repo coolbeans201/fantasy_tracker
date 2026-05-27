@@ -23,16 +23,42 @@ def main() -> None:
         default=None,
         help="Cap players ingested (testing / partial runs)",
     )
+    p.add_argument(
+        "--delay",
+        type=float,
+        default=0.6,
+        help="Delay between per-player fallback requests (seconds).",
+    )
+    p.add_argument(
+        "--timeout",
+        type=float,
+        default=90.0,
+        help="HTTP timeout for NBA Stats API calls.",
+    )
+    p.add_argument(
+        "--per-player-only",
+        action="store_true",
+        help="Skip bulk PlayerGameLogs and fetch one player at a time (slower, more reliable).",
+    )
     args = p.parse_args()
     init_schema()
     conn = get_connection()
     try:
-        rows = ingest_season_gamelogs(
-            conn, args.season, limit_players=args.limit_players
+        summary = ingest_season_gamelogs(
+            conn,
+            args.season,
+            limit_players=args.limit_players,
+            delay_sec=max(0.0, float(args.delay)),
+            timeout_sec=max(30.0, float(args.timeout)),
+            per_player_only=args.per_player_only,
         )
     finally:
         conn.close()
-    print(f"Ingested {rows} NBA game log rows for season {args.season}")
+    print(
+        f"Ingested {summary['rows']} NBA game log rows for season {args.season} "
+        f"({summary['players_loaded']}/{summary['players_total']} players, "
+        f"skipped={summary['players_skipped']})"
+    )
 
 
 if __name__ == "__main__":

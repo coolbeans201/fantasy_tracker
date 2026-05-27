@@ -8,10 +8,13 @@ from typing import Any
 import pandas as pd
 import requests
 
+from src.sports.game_logs import order_game_log_by_date
 from src.sports.mlb.positions import is_pitcher_position
 from src.sports.mlb.scoring import compute_hitter_fp, compute_pitcher_fp
 
 _MLB_STATS_URL = "https://statsapi.mlb.com/api/v1/people/{player_id}/stats"
+MLB_GAMELOG_RETRIES = 4
+MLB_GAMELOG_BASE_DELAY_SEC = 1.0
 
 
 def _season_id(year: int) -> int:
@@ -96,7 +99,7 @@ def _extract_rows(player_id: str, player_name: str, end_year: int, payload: dict
         return pd.DataFrame()
     out = pd.DataFrame(rows)
     out["game_date"] = pd.to_datetime(out["game_date"], errors="coerce").dt.date
-    out["game_index"] = range(1, len(out) + 1)
+    out = order_game_log_by_date(out)
 
     pitching_mask = out["wins"].notna() if "wins" in out.columns else pd.Series(False, index=out.index)
     out["fantasy_points_espn"] = 0.0
@@ -128,13 +131,28 @@ def fetch_player_gamelog(
         "group": "pitching" if is_pitcher else "hitting",
         "season": int(end_year),
     }
-    resp = requests.get(
-        _MLB_STATS_URL.format(player_id=player_id),
-        params=params,
-        timeout=30,
-    )
-    resp.raise_for_status()
-    payload = resp.json()
+    last: Exception | None = None
+    for attempt in range(1, MLB_GAMELOG_RETRIES + 1):
+        try:
+            resp = requests.get(
+                _MLB_STATS_URL.format(player_id=player_id),
+                params=params,
+                timeout=30,
+            )
+            resp.raise_for_status()
+            payload = resp.json()
+            break
+        except Exception as exc:
+            last = exc
+            if attempt >= MLB_GAMELOG_RETRIES:
+                raise
+            wait = MLB_GAMELOG_BASE_DELAY_SEC * attempt
+            print(f"  MLB gamelog {player_id} failed ({exc}); retrying in {wait:.1f}s...")
+            time.sleep(wait)
+    else:
+        if last is not None:
+            raise last
+        return pd.DataFrame()
     return _extract_rows(player_id, player_name, end_year, payload)
 
 
@@ -144,7 +162,7 @@ def ingest_season_gamelogs(
     *,
     limit_players: int | None = None,
     delay_sec: float = 0.25,
-) -> int:
+) -> dict[str, int]:
     """Ingest MLB game logs for one season (hitters and pitchers)."""
     q = """
         SELECT player_id, player_name, position
@@ -158,7 +176,7 @@ def ingest_season_gamelogs(
         params.append(int(limit_players))
     players = conn.execute(q, params).df()
     if players.empty:
-        return 0
+        return {"rows": 0, "players_total": 0, "players_loaded": 0, "players_skipped": 0}
 
     # Players can appear in multiple season rows (team splits / position splits).
     # Build one ingest record per player_id and keep pitcher flag if any row is pitcher.
@@ -180,8 +198,11 @@ def ingest_season_gamelogs(
 
     conn.execute("DELETE FROM mlb_player_game_stats WHERE season = ?", [end_year])
     total = 0
+    loaded = 0
+    skipped = 0
     for pid in sorted(by_player):
         if not pid.isdigit():
+            skipped += 1
             continue
         meta = by_player[pid]
         pname = str(meta.get("player_name") or "").strip()
@@ -189,9 +210,11 @@ def ingest_season_gamelogs(
         try:
             frame = fetch_player_gamelog(pid, pname, end_year, is_pitcher=is_pitcher)
         except Exception:
+            skipped += 1
             time.sleep(delay_sec)
             continue
         if frame.empty:
+            skipped += 1
             time.sleep(delay_sec)
             continue
         frame = frame.drop_duplicates(subset=["player_id", "season", "game_id"], keep="first")
@@ -199,5 +222,11 @@ def ingest_season_gamelogs(
         conn.execute("INSERT INTO mlb_player_game_stats SELECT * FROM _mlb_g")
         conn.unregister("_mlb_g")
         total += len(frame)
+        loaded += 1
         time.sleep(delay_sec)
-    return total
+    return {
+        "rows": int(total),
+        "players_total": int(len(by_player)),
+        "players_loaded": int(loaded),
+        "players_skipped": int(skipped),
+    }

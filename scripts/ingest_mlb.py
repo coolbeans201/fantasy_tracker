@@ -4,6 +4,7 @@
 from __future__ import annotations
 
 import argparse
+import functools
 import sys
 import time
 from datetime import datetime, timezone
@@ -23,6 +24,7 @@ from src.db.sport_schema import (  # noqa: E402
 from src.sports.mlb.positions import (  # noqa: E402
     classify_pitcher_role,
     is_pitcher_position,
+    normalize_mlb_field_position,
 )
 from src.sports.mlb.consolidate import consolidate_mlb_season_frame  # noqa: E402
 from src.sports.mlb.scoring import compute_hitter_fp, compute_pitcher_fp  # noqa: E402
@@ -132,6 +134,36 @@ def _player_id(raw: pd.DataFrame) -> pd.Series:
     return names
 
 
+@functools.lru_cache(maxsize=32)
+def _mlb_primary_position_by_id(season: int) -> dict[str, str]:
+    """ID-based MLB primary position mapping from StatsAPI people endpoint."""
+    try:
+        resp = requests.get(
+            "https://statsapi.mlb.com/api/v1/sports/1/players",
+            params={"season": int(season)},
+            timeout=45,
+        )
+        resp.raise_for_status()
+        payload = resp.json()
+    except Exception:
+        return {}
+    people = payload.get("people") or []
+    if not isinstance(people, list):
+        return {}
+    out: dict[str, str] = {}
+    for p in people:
+        if not isinstance(p, dict):
+            continue
+        pid = str(p.get("id") or "").strip()
+        if not pid:
+            continue
+        raw_pos = ((p.get("primaryPosition") or {}).get("abbreviation")) or None
+        pos = normalize_mlb_field_position(raw_pos)
+        if pos:
+            out[pid] = pos
+    return out
+
+
 def _batting_frame_bref(year: int) -> pd.DataFrame:
     raw = _fetch_bref_raw(year, batting=True)
     if raw is None or raw.empty:
@@ -146,7 +178,8 @@ def _batting_frame_bref(year: int) -> pd.DataFrame:
     out["player_name"] = _player_names(raw)
     out["season"] = year
     # Keep hitter cohort stable when source position tags are inconsistent.
-    out["position"] = "H"
+    pos_by_id = _mlb_primary_position_by_id(year)
+    out["position"] = out["player_id"].map(pos_by_id).fillna("H")
     out["team"] = _series(raw, "Tm", "Team", "team").map(normalize_mlb_team)
     out["games"] = games.loc[raw.index].astype(int)
     out["plate_appearances"] = pd.to_numeric(_series(raw, "PA"), errors="coerce").fillna(0)

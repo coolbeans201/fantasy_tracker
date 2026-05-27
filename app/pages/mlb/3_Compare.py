@@ -36,5 +36,5 @@ render_sport_compare_page(
     "mlb",
     label="MLB",
     caption="Compare **hitters to hitters** or **pitchers to pitchers** only.",
-    load_rows=_load_mlb_rows,
+    use_search_pickers=True,
 )

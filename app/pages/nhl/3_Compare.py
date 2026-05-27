@@ -45,5 +45,5 @@ render_sport_compare_page(
     "nhl",
     label="NHL",
     caption="Compare **skaters to skaters** or **goalies to goalies** only.",
-    load_rows=_load_nhl_rows,
+    use_search_pickers=True,
 )
