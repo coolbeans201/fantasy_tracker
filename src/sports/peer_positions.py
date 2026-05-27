@@ -16,7 +16,9 @@ def positions_for_peer_grouping(sport_id: str, position: str | None) -> str | No
         from src.sports.mlb.positions import normalize_mlb_position
 
         p = normalize_mlb_position(position)
-        if p in ("H", "P"):
+        if p == "H":
+            return "H"
+        if p == "P":
             return None
         return p
     if sid == "nhl":

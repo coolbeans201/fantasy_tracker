@@ -25,7 +25,7 @@ Open-source fantasy analytics for **completed seasons** — season leaders, play
 - **Player Profile:** Career/window table, peak/prime highlights, season detail, game logs where ingested; **no internal `player_id` in tables**
 - **Compare:** **All-time**, **single season**, or **selected seasons**; **Skaters vs goalies** (NHL) and **Hitters vs pitchers** (MLB) cohort pickers — cross-cohort compare is blocked
 - **MLB:** Field positions (**H** shortcut or **C–DH**) and **SP/RP** (**P** shortcut); do **not** mix hitters and pitchers in one leaders filter. **Mid-season trades** = one row per team after re-ingest. **Career Z** omitted for **2020** (shortened season). BRef + FanGraphs ingest; BRef from **2008**
-- **NBA:** Season totals from `LeagueDashPlayerStats`; positions from rosters + `PlayerIndex`; optional per-player game logs (`scripts/ingest_nba_gamelogs.py`, slow)
+- **NBA:** Season totals from `LeagueDashPlayerStats`; positions from team rosters + `PlayerIndex` fallback by default (disk cache under `data/cache/nba/`, gitignored). Use `scripts/ingest_nba.py --index-only` for faster-but-less-accurate lookup, or `--refresh-positions` to refetch. Optional per-player game logs (`scripts/ingest_nba_gamelogs.py`, slow)
 - **NHL:** Skater positions (**S** shortcut or **C, LW, RW, D, F**) and **G** for goalies; do **not** mix skaters and goalies. **Mid-season trades** = one row per team after re-ingest
 
 ### App
@@ -127,13 +127,15 @@ For multi-year compare, set sidebar **Season view** to **Season range** or **Pic
 |--------|---------|
 | `scripts/ingest.py` | Unified ingest (`--sport nfl\|mlb\|nba\|nhl`, `--season`, `--bulk`) |
 | `scripts/ingest_season.py` | NFL (`--season`, `--bulk --from-year 1999 --to-year 2025`) |
-| `scripts/ingest_mlb.py` | MLB (`--season`, `--bulk`; `--source auto\|bref\|fangraphs`; `--fail-fast`) |
-| `scripts/ingest_nba.py` | NBA (`--bulk --from-year 2000` typical) |
+| `scripts/ingest_mlb.py` | MLB (`--season`, `--bulk`, `--seasons`; `--source auto\|bref\|fangraphs`; `--delay`; `--retries`; `--failure-log`; `--fail-fast`) |
+| `scripts/ingest_nba.py` | NBA (`--bulk --from-year 2000` typical; `--refresh-positions`, `--index-only`) |
 | `scripts/ingest_nhl.py` | NHL (`--bulk --from-year 2005` typical) |
 | `scripts/ingest_rankings.py` | FantasyPros ECR (NFL) from nflverse |
 | `scripts/rankings_coverage.py` | Draft ECR vs stats ingest coverage |
 | `scripts/volume_report.py` | Peer-Z volume gate check (`--season YEAR`, `--sport` nfl / mlb / nba / nhl) |
 | `scripts/ingest_nba_gamelogs.py` | NBA per-game rows for profiles (`--season`, optional `--limit-players`) |
+| `scripts/ingest_mlb_gamelogs.py` | MLB per-game rows for profiles (`--season`, optional `--limit-players`) |
+| `scripts/ingest_nhl_gamelogs.py` | NHL per-game rows for profiles (`--season`, optional `--limit-players`) |
 | `scripts/rebuild_players.py` | Rebuild NFL player search index |
 | `scripts/check_env.py` | Python arch, packages, DB presence |
 

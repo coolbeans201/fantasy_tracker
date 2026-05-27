@@ -20,14 +20,9 @@ from src.db.sport_schema import (  # noqa: E402
     MLB_PLAYER_SEASON_COLUMNS,
     ensure_mlb_player_season_stats_schema,
 )
-from src.sports.mlb.position_lookup import (  # noqa: E402
-    load_field_position_map,
-    resolve_field_position,
-)
 from src.sports.mlb.positions import (  # noqa: E402
     classify_pitcher_role,
     is_pitcher_position,
-    normalize_mlb_field_position,
 )
 from src.sports.mlb.consolidate import consolidate_mlb_season_frame  # noqa: E402
 from src.sports.mlb.scoring import compute_hitter_fp, compute_pitcher_fp  # noqa: E402
@@ -38,6 +33,8 @@ from src.text_encoding import normalize_unicode_series  # noqa: E402
 BREF_MIN_SEASON = 2008
 BREF_FETCH_ATTEMPTS = 5
 BREF_RETRY_BASE_DELAY_SEC = 4.0
+DEFAULT_BULK_DELAY_BREF_SEC = 3.0
+DEFAULT_BULK_DELAY_OTHER_SEC = 1.5
 
 
 class BRefScrapeError(RuntimeError):
@@ -85,6 +82,34 @@ def _fetch_bref_raw(year: int, *, batting: bool) -> pd.DataFrame:
         f"after {BREF_FETCH_ATTEMPTS} attempts"
     ) from last
 
+
+def _parse_seasons_arg(raw: str | None) -> list[int]:
+    """Parse --seasons like '2019,2021-2023' into sorted unique years."""
+    if not raw:
+        return []
+    out: set[int] = set()
+    for token in str(raw).split(","):
+        piece = token.strip()
+        if not piece:
+            continue
+        if "-" in piece:
+            lo_s, hi_s = piece.split("-", 1)
+            lo = int(lo_s.strip())
+            hi = int(hi_s.strip())
+            if hi < lo:
+                lo, hi = hi, lo
+            out.update(range(lo, hi + 1))
+        else:
+            out.add(int(piece))
+    return sorted(out)
+
+
+def _append_failure_log(path: Path, year: int, source: str, exc: Exception) -> None:
+    path.parent.mkdir(parents=True, exist_ok=True)
+    ts = datetime.now(timezone.utc).isoformat()
+    with path.open("a", encoding="utf-8") as f:
+        f.write(f"{ts}\t{year}\t{source}\t{type(exc).__name__}\t{exc}\n")
+
 def _series(raw: pd.DataFrame, *names: str) -> pd.Series:
     for name in names:
         if name in raw.columns:
@@ -107,7 +132,7 @@ def _player_id(raw: pd.DataFrame) -> pd.Series:
     return names
 
 
-def _batting_frame_bref(year: int, pos_by_name: dict[str, str]) -> pd.DataFrame:
+def _batting_frame_bref(year: int) -> pd.DataFrame:
     raw = _fetch_bref_raw(year, batting=True)
     if raw is None or raw.empty:
         return pd.DataFrame()
@@ -120,11 +145,11 @@ def _batting_frame_bref(year: int, pos_by_name: dict[str, str]) -> pd.DataFrame:
     out["player_id"] = _player_id(raw)
     out["player_name"] = _player_names(raw)
     out["season"] = year
-    out["position"] = out["player_name"].map(
-        lambda n: resolve_field_position(n, pos_by_name)
-    )
+    # Keep hitter cohort stable when source position tags are inconsistent.
+    out["position"] = "H"
     out["team"] = _series(raw, "Tm", "Team", "team").map(normalize_mlb_team)
     out["games"] = games.loc[raw.index].astype(int)
+    out["plate_appearances"] = pd.to_numeric(_series(raw, "PA"), errors="coerce").fillna(0)
     out["runs"] = pd.to_numeric(_series(raw, "R"), errors="coerce").fillna(0)
     out["home_runs"] = pd.to_numeric(_series(raw, "HR"), errors="coerce").fillna(0)
     out["rbi"] = pd.to_numeric(_series(raw, "RBI"), errors="coerce").fillna(0)
@@ -160,6 +185,7 @@ def _pitching_frame_bref(year: int) -> pd.DataFrame:
     )
     out["team"] = _series(raw, "Tm", "Team", "team").map(normalize_mlb_team)
     out["games"] = games.loc[raw.index].astype(int)
+    out["plate_appearances"] = 0.0
     out["wins"] = pd.to_numeric(_series(raw, "W"), errors="coerce").fillna(0)
     out["strikeouts_pitch"] = pd.to_numeric(_series(raw, "SO"), errors="coerce").fillna(0)
     out["saves"] = pd.to_numeric(_series(raw, "SV"), errors="coerce").fillna(0)
@@ -178,20 +204,14 @@ def _batting_frame_fangraphs(year: int) -> pd.DataFrame:
     raw = batting_stats(year, qual=1)
     if raw is None or raw.empty:
         return pd.DataFrame()
-    pos_col = "Pos" if "Pos" in raw.columns else None
     out = pd.DataFrame()
     out["player_id"] = raw["IDfg"].astype(str)
     out["player_name"] = normalize_unicode_series(raw["Name"].astype(str))
     out["season"] = year
-    if pos_col:
-        out["position"] = raw[pos_col].map(normalize_mlb_field_position).fillna("UTIL")
-    else:
-        pos_by_name = load_field_position_map(year)
-        out["position"] = out["player_name"].map(
-            lambda n: resolve_field_position(n, pos_by_name)
-        )
+    out["position"] = "H"
     out["team"] = raw.get("Team", pd.Series(["UNK"] * len(raw))).map(normalize_mlb_team)
     out["games"] = pd.to_numeric(raw.get("G", 0), errors="coerce").fillna(0).astype(int)
+    out["plate_appearances"] = pd.to_numeric(raw.get("PA", 0), errors="coerce").fillna(0)
     out["runs"] = pd.to_numeric(raw.get("R", 0), errors="coerce").fillna(0)
     out["home_runs"] = pd.to_numeric(raw.get("HR", 0), errors="coerce").fillna(0)
     out["rbi"] = pd.to_numeric(raw.get("RBI", 0), errors="coerce").fillna(0)
@@ -231,6 +251,7 @@ def _pitching_frame_fangraphs(year: int) -> pd.DataFrame:
     )
     out["team"] = raw.get("Team", pd.Series(["UNK"] * len(raw))).map(normalize_mlb_team)
     out["games"] = g.astype(int)
+    out["plate_appearances"] = 0.0
     out["wins"] = pd.to_numeric(raw.get("W", 0), errors="coerce").fillna(0)
     out["strikeouts_pitch"] = pd.to_numeric(raw.get("SO", 0), errors="coerce").fillna(0)
     out["saves"] = pd.to_numeric(raw.get("SV", 0), errors="coerce").fillna(0)
@@ -244,8 +265,6 @@ def _pitching_frame_fangraphs(year: int) -> pd.DataFrame:
 
 
 def _fetch_frames(year: int, source: str) -> tuple[pd.DataFrame, pd.DataFrame, str]:
-    pos_by_name = load_field_position_map(year)
-
     if year < BREF_MIN_SEASON and source in ("auto", "bref"):
         raise ValueError(
             f"Baseball Reference ingest supports seasons {BREF_MIN_SEASON}+. "
@@ -261,7 +280,7 @@ def _fetch_frames(year: int, source: str) -> tuple[pd.DataFrame, pd.DataFrame, s
     # auto and bref: try BRef first; FanGraphs fallback when BRef has no table
     # (IndexError in pybaseball = empty soup, often rate limits or bot blocks).
     try:
-        hit = _batting_frame_bref(year, pos_by_name)
+        hit = _batting_frame_bref(year)
         time.sleep(2.0)
         pit = _pitching_frame_bref(year)
         if not hit.empty or not pit.empty:
@@ -324,6 +343,7 @@ def ingest_season(year: int, *, source: str = "auto") -> None:
 
 
 def main() -> None:
+    global BREF_FETCH_ATTEMPTS, BREF_RETRY_BASE_DELAY_SEC
     p = argparse.ArgumentParser(description="Ingest MLB season into DuckDB")
     p.add_argument("--season", type=int, help="Calendar year (e.g. 2024); not used with --bulk")
     p.add_argument(
@@ -336,18 +356,56 @@ def main() -> None:
         ),
     )
     p.add_argument("--bulk", action="store_true", help="Ingest --from-year through --to-year")
+    p.add_argument(
+        "--seasons",
+        type=str,
+        default=None,
+        help="Explicit years (comma/range), e.g. 2019,2021-2023; overrides --from-year/--to-year",
+    )
     p.add_argument("--from-year", type=int, default=2008)
     p.add_argument("--to-year", type=int, default=2025)
+    p.add_argument(
+        "--delay",
+        type=float,
+        default=None,
+        help="Delay between bulk seasons in seconds (default: source-based).",
+    )
+    p.add_argument(
+        "--retries",
+        type=int,
+        default=BREF_FETCH_ATTEMPTS,
+        help="BRef retry attempts per batting/pitching call.",
+    )
+    p.add_argument(
+        "--retry-base-delay",
+        type=float,
+        default=BREF_RETRY_BASE_DELAY_SEC,
+        help="Base seconds for linear retry backoff (attempt * base).",
+    )
+    p.add_argument(
+        "--failure-log",
+        type=str,
+        default="data/ingest_failures_mlb.log",
+        help="Append skipped bulk years to this TSV log file.",
+    )
     p.add_argument(
         "--fail-fast",
         action="store_true",
         help="Stop bulk ingest on first season error (default: skip and continue)",
     )
     args = p.parse_args()
+    BREF_FETCH_ATTEMPTS = max(1, int(args.retries))
+    BREF_RETRY_BASE_DELAY_SEC = max(0.1, float(args.retry_base_delay))
 
     if args.bulk:
-        years = range(args.from_year, args.to_year + 1)
-        print(f"Bulk MLB ingest: {args.from_year}–{args.to_year} ({len(years)} seasons, source={args.source})")
+        explicit_years = _parse_seasons_arg(args.seasons)
+        if explicit_years:
+            years = explicit_years
+            label = ",".join(str(y) for y in years)
+        else:
+            years = list(range(args.from_year, args.to_year + 1))
+            label = f"{args.from_year}–{args.to_year}"
+        print(f"Bulk MLB ingest: {label} ({len(years)} seasons, source={args.source})")
         skipped: list[int] = []
         for year in years:
             print(f"--- MLB {year} ---")
@@ -358,8 +416,18 @@ def main() -> None:
                     raise
                 print(f"  WARNING: skipped MLB {year}: {exc}")
                 skipped.append(year)
-            delay = 3.0 if args.source == "bref" else 1.5
-            time.sleep(delay)
+                _append_failure_log(Path(args.failure_log), year, args.source, exc)
+            delay = (
+                float(args.delay)
+                if args.delay is not None
+                else (
+                    DEFAULT_BULK_DELAY_BREF_SEC
+                    if args.source == "bref"
+                    else DEFAULT_BULK_DELAY_OTHER_SEC
+                )
+            )
+            if delay > 0:
+                time.sleep(delay)
         if skipped:
             print(f"Skipped {len(skipped)} season(s): {skipped}")
             print("Re-run failed years, e.g. --season 2024 (auto/bref retry BRef then FanGraphs)")

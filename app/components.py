@@ -127,7 +127,7 @@ def _empty_sidebar_controls() -> dict:
         "preset": "Half-PPR",
         "preset_key": "half_ppr",
         "era_z": False,
-        "min_games": get_min_games_default(),
+        "min_games": get_min_games_default("nfl"),
         "fantasy_positions": leader_position_options(),
     }
 
@@ -240,14 +240,24 @@ def render_sidebar(
     if not window_seasons:
         st.sidebar.warning("Select at least one season in this window.")
 
-    default_min = get_min_games_default()
-    max_games = {"nfl": 17, "mlb": 162, "nba": 82, "nhl": 82}.get(sport, 82)
+    default_min = get_min_games_default(sport)
+    max_games = {"nfl": 17, "mlb": 750, "nba": 82, "nhl": 82}.get(sport, 82)
+    min_label = (
+        title_case_ui("Min plate appearances")
+        if sport == "mlb"
+        else title_case_ui("Min games played")
+    )
     min_games = st.sidebar.slider(
-        title_case_ui("Min games played"),
+        min_label,
         min_value=1,
         max_value=max_games,
         value=min(default_min, max_games),
-        help=f"Default {default_min} (config/settings.yaml)",
+        help=(
+            f"Default {default_min} (config/settings.yaml). "
+            "MLB pitching cohorts still use innings-pitched gates."
+            if sport == "mlb"
+            else f"Default {default_min} (config/settings.yaml)"
+        ),
     )
     era_z = False
     if sport == "nfl":

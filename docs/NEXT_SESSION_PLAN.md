@@ -180,8 +180,8 @@ Execution plan for a follow-up session. Builds on current behavior: sport-specif
 **Tasks:**
 
 - [ ] Benchmark: time one season before/after (PlayerIndex-only).
-- [ ] Implement chosen approach in `fetch_season_positions()`.
-- [ ] CLI flag: `--refresh-positions` to bust cache.
+- [x] Implement chosen approach in `fetch_season_positions()`.
+- [x] CLI flag: `--refresh-positions` to bust cache.
 
 **Acceptance:** NBA `ingest_season` for one year completes in **&lt; 30s** typical (vs minutes today).
 

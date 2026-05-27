@@ -7,11 +7,16 @@ import pandas as pd
 from src.db.sport_schema import MLB_PLAYER_SEASON_COLUMNS
 from src.sports.mlb.positions import is_pitcher_position
 from src.sports.mlb.scoring import compute_hitter_fp, compute_pitcher_fp
-from src.sports.mlb.teams import is_summary_team, normalize_mlb_team
+from src.sports.mlb.teams import (
+    is_combined_team_label,
+    is_summary_team,
+    normalize_mlb_team,
+)
 from src.text_encoding import normalize_unicode_series
 
 _MLB_SUM_COLS = (
     "games",
+    "plate_appearances",
     "runs",
     "home_runs",
     "rbi",
@@ -35,7 +40,9 @@ def drop_redundant_summary_team_rows(frame: pd.DataFrame) -> pd.DataFrame:
         return frame
     out = frame.copy()
     out["team"] = out["team"].map(normalize_mlb_team)
-    out["_summary"] = out["team"].map(is_summary_team)
+    out["_summary"] = out["team"].map(
+        lambda t: is_summary_team(t) or is_combined_team_label(t)
+    )
     keys = ["player_id", "season", "position"]
     has_split = out.groupby(keys, dropna=False)["_summary"].transform(lambda s: (~s).any())
     return out[~(out["_summary"] & has_split)].drop(columns=["_summary"])

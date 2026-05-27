@@ -16,7 +16,11 @@ def load_settings() -> dict:
         return yaml.safe_load(f) or {}
 
 
-def get_min_games_default() -> int:
+def get_min_games_default(sport_id: str | None = None) -> int:
     settings = load_settings()
     thresholds_fallback = 8
-    return int(settings.get("min_games_default", thresholds_fallback))
+    global_default = int(settings.get("min_games_default", thresholds_fallback))
+    if sport_id is None:
+        return global_default
+    by_sport = settings.get("min_games_default_by_sport") or {}
+    return int(by_sport.get(str(sport_id).strip().lower(), global_default))

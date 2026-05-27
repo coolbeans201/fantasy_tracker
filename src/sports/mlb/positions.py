@@ -109,10 +109,12 @@ def expand_leader_positions(selected: list[str] | None) -> list[str] | None:
     for pos in selected:
         p = str(pos).strip().upper()
         if p == LEGACY_HITTER:
-            expanded.extend(FIELD_POSITIONS)
+            expanded.extend(FIELD_POSITIONS + [LEGACY_HITTER])
         elif p == LEGACY_PITCHER:
             expanded.extend(PITCHER_POSITIONS)
-        elif p in LEADER_POSITIONS:
+        elif p in FIELD_POSITIONS:
+            expanded.extend([p, LEGACY_HITTER])
+        elif p in PITCHER_POSITIONS:
             expanded.append(p)
     if not expanded:
         return None

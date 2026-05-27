@@ -7,6 +7,7 @@ from __future__ import annotations
 
 
 from pathlib import Path
+import time
 
 
 
@@ -71,11 +72,33 @@ def ensure_data_dir() -> Path:
 
 
 
-def get_connection(read_only: bool = False) -> duckdb.DuckDBPyConnection:
+def _is_lock_error(exc: Exception) -> bool:
+    text = str(exc).lower()
+    return "cannot open file" in text and "being used by another process" in text
+
+
+def get_connection(
+    read_only: bool = False,
+    *,
+    lock_wait_timeout_sec: float = 30.0,
+    lock_retry_sec: float = 0.5,
+) -> duckdb.DuckDBPyConnection:
 
     ensure_data_dir()
 
-    return duckdb.connect(str(DB_PATH), read_only=read_only)
+    if read_only:
+        return duckdb.connect(str(DB_PATH), read_only=True)
+
+    timeout = max(0.0, float(lock_wait_timeout_sec))
+    retry = max(0.1, float(lock_retry_sec))
+    deadline = time.time() + timeout
+    while True:
+        try:
+            return duckdb.connect(str(DB_PATH), read_only=False)
+        except duckdb.IOException as exc:
+            if not _is_lock_error(exc) or time.time() >= deadline:
+                raise
+            time.sleep(retry)
 
 
 

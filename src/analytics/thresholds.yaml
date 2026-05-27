@@ -1,5 +1,6 @@
 # Minimum volume for Z-score peer comparisons (season totals)
-# min_games for leaderboards: see config/settings.yaml (min_games_default)
+# Leaderboard minimums: see config/settings.yaml.
+# MLB hitters use plate appearances; MLB pitchers use innings-pitched gates.
 #
 # Volume gates below are configurable heuristics (not from an external study).
 # Goal: exclude low-usage players from peer cohorts so Z-scores are meaningful.
@@ -44,7 +45,7 @@ volume_gates_by_sport:
       games: 41
   mlb:
     default:
-      games: 50
+      plate_appearances: 200
     SP:
       innings_pitched: 50
     RP:

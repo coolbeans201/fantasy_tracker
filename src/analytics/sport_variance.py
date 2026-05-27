@@ -6,6 +6,7 @@ import numpy as np
 import pandas as pd
 
 from src.analytics.variance import load_thresholds
+from src.sports.mlb.positions import is_pitcher_position
 from src.sports.peer_positions import positions_for_peer_grouping
 from src.settings import get_min_games_default
 
@@ -24,8 +25,9 @@ def _volume_column_sport(sport_id: str, position: str | None) -> tuple[str, floa
         key = next(iter(gate))
         return key, float(gate[key])
     default = gates.get("default", {})
-    if "games" in default:
-        return "games", float(default["games"])
+    if default:
+        key = next(iter(default))
+        return key, float(default[key])
     return None
 
 
@@ -36,7 +38,12 @@ def qualifies_for_peer_z_sport(
     min_games: int | None = None,
 ) -> bool:
     games_min = min_games if min_games is not None else get_min_games_default()
-    if float(row.get("games", 0) or 0) < games_min:
+    sid = str(sport_id).strip().lower()
+    if sid == "mlb":
+        if not is_pitcher_position(row.get("position")):
+            if float(row.get("plate_appearances", 0) or 0) < games_min:
+                return False
+    elif float(row.get("games", 0) or 0) < games_min:
         return False
     gate = _volume_column_sport(sport_id, row.get("position"))
     if gate is None:

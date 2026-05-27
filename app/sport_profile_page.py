@@ -169,7 +169,8 @@ def render_sport_profile_page(sport_id: str, *, label: str) -> None:
         st.caption(
             f"Totals and season rows for **{format_season_span(controls['seasons'])}**."
         )
-    qualified = career[career["games"] >= min_games]
+    qualified_flags = add_volume_flags_sport(career, sport_id, min_games=min_games)
+    qualified = qualified_flags[qualified_flags["peer_qualified"]]
     if controls["is_multi_season"] and not qualified.empty:
         total_fp = float(qualified["fantasy_points"].sum())
         total_games = int(qualified["games"].sum())
@@ -216,14 +217,12 @@ def render_sport_profile_page(sport_id: str, *, label: str) -> None:
     ]
     career_show = career[[c for c in career_cols if c in career.columns]].copy()
 
-    detail_mask = career["season"].astype(int) == detail_season
-    detail_rows = career[detail_mask]
-    if not detail_rows.empty:
-        peer_df = peer_df_for_entity_season_sport(conn, sport_id, detail_season, min_games)
+    if "peer_z_season" not in career_show.columns:
+        career_show["peer_z_season"] = None
+    for season_val, season_rows in career.groupby(career["season"].astype(int)):
+        peer_df = peer_df_for_entity_season_sport(conn, sport_id, int(season_val), min_games)
         peer_df = add_volume_flags_sport(peer_df, sport_id, min_games=min_games)
-        if "peer_z_season" not in career_show.columns:
-            career_show["peer_z_season"] = None
-        for idx in detail_rows.index:
+        for idx in season_rows.index:
             row = career.loc[idx]
             pz = peer_z_score_sport(
                 float(row["fantasy_points"]),
@@ -232,6 +231,9 @@ def render_sport_profile_page(sport_id: str, *, label: str) -> None:
                 row.get("position"),
             )
             career_show.loc[idx, "peer_z_season"] = pz
+
+    detail_mask = career["season"].astype(int) == detail_season
+    detail_rows = career[detail_mask]
 
     season_series = career["season"].astype(int)
     career_highlighted = add_highlight_column(

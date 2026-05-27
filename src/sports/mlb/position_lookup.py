@@ -13,7 +13,10 @@ from src.text_encoding import normalize_unicode_text
 
 
 def _name_key(name: str) -> str:
-    return normalize_unicode_text(name).lower()
+    cleaned = normalize_unicode_text(name)
+    cleaned = re.sub(r"[\*\#]+$", "", cleaned).strip()
+    cleaned = re.sub(r"\s+", " ", cleaned)
+    return cleaned.lower()
 
 
 def _find_column(frame: pd.DataFrame, *candidates: str) -> str | None:
@@ -21,6 +24,11 @@ def _find_column(frame: pd.DataFrame, *candidates: str) -> str | None:
     for cand in candidates:
         if cand.lower() in lower:
             return lower[cand.lower()]
+    normalized = {k.replace("\xa0", " ").strip(): v for k, v in lower.items()}
+    for cand in candidates:
+        key = cand.lower().replace("\xa0", " ").strip()
+        if key in normalized:
+            return normalized[key]
     return None
 
 
@@ -48,8 +56,17 @@ def field_positions_from_bref_standard(year: int) -> dict[str, str]:
     for table in tables:
         if isinstance(table.columns, pd.MultiIndex):
             table.columns = [str(c[-1]) if isinstance(c, tuple) else str(c) for c in table.columns]
-        name_col = _find_column(table, "Name", "Player")
-        pos_col = _find_column(table, "Pos", "Position")
+        name_col = _find_column(table, "Name", "Player", "name", "player")
+        pos_col = _find_column(
+            table,
+            "Pos",
+            "POS",
+            "pos",
+            "Pos Summary",
+            "pos summary",
+            "Position",
+            "position",
+        )
         if not name_col or not pos_col:
             continue
         for _, row in table.iterrows():
@@ -80,8 +97,8 @@ def field_positions_from_fangraphs(year: int) -> dict[str, str]:
     if raw is None or raw.empty:
         return {}
 
-    pos_col = _find_column(raw, "Pos", "Position")
-    name_col = _find_column(raw, "Name", "player_name")
+    pos_col = _find_column(raw, "Pos", "POS", "pos", "Position", "position")
+    name_col = _find_column(raw, "Name", "Player", "player_name", "name")
     if not pos_col or not name_col:
         return {}
 

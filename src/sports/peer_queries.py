@@ -32,7 +32,7 @@ def season_stats_for_peer_analysis(
     sid = str(sport_id).strip().lower()
     extra_cols = ""
     if sid == "mlb":
-        extra_cols = ", innings_pitched"
+        extra_cols = ", innings_pitched, plate_appearances"
     query = f"""
         SELECT
             player_id,
@@ -48,7 +48,7 @@ def season_stats_for_peer_analysis(
     if season is not None:
         query += " AND season = ?"
         params.append(int(season))
-    if min_games and min_games > 0:
+    if min_games and min_games > 0 and sid != "mlb":
         query += " AND games >= ?"
         params.append(int(min_games))
     df = _fetch(conn, query, params)
@@ -61,8 +61,11 @@ def season_stats_for_peer_analysis(
             "games": ("games", "sum"),
             "fantasy_points": ("fantasy_points", "sum"),
         }
-        if sid == "mlb" and "innings_pitched" in df.columns:
-            agg["innings_pitched"] = ("innings_pitched", "sum")
+        if sid == "mlb":
+            if "innings_pitched" in df.columns:
+                agg["innings_pitched"] = ("innings_pitched", "sum")
+            if "plate_appearances" in df.columns:
+                agg["plate_appearances"] = ("plate_appearances", "sum")
         df = df.groupby(group_cols, as_index=False).agg(**agg)
     df["position"] = df["position"].apply(
         lambda p: positions_for_peer_grouping(sport_id, p)

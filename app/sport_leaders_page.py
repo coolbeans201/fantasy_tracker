@@ -116,14 +116,21 @@ def render_sport_leaders_page(sport_id: str) -> None:
     if is_window:
         st.caption(
             f"**Window leaders** for **{format_season_span(seasons)}**: totals and FP/G sum each "
-            f"qualified season (min **{controls['min_games']}** games per season)."
+            f"qualified season (min **{controls['min_games']}** "
+            f"{'PA' if sport_id == 'mlb' else 'games'} per season)."
         )
         cap = metric_window_caption(seasons)
         if cap:
             st.caption(cap)
         team_filter = None
     else:
-        st.caption("Uses **ESPN** default fantasy points (v1).")
+        if sport_id == "mlb":
+            st.caption(
+                "Uses **ESPN** default fantasy points (v1). "
+                "Hitters use **min plate appearances**; pitchers use **innings-pitched gates**."
+            )
+        else:
+            st.caption("Uses **ESPN** default fantasy points (v1).")
         teams = ["All"] + distinct_teams_for_seasons(conn, sport_id, [int(season)])
         team_filter = st.selectbox(title_case_ui("Team"), teams)
         if sport_id in ("mlb", "nhl") and team_filter in (None, "All"):

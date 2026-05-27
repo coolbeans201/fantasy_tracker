@@ -33,3 +33,18 @@ def test_peer_z_pg_not_vs_pf():
 def test_min_games_excludes_bench():
     row = pd.Series({"position": "PG", "games": 10, "fantasy_points": 500.0})
     assert not qualifies_for_peer_z_sport(row, "nba", min_games=41)
+
+
+def test_mlb_hitter_uses_plate_appearances_gate():
+    row = pd.Series(
+        {"position": "H", "games": 140, "plate_appearances": 90, "fantasy_points": 300.0}
+    )
+    assert not qualifies_for_peer_z_sport(row, "mlb", min_games=200)
+
+
+def test_mlb_pitcher_uses_ip_not_games():
+    row = pd.Series(
+        {"position": "RP", "games": 60, "innings_pitched": 15, "fantasy_points": 120.0}
+    )
+    # Even with very low min-games slider value, RP should fail IP gate (20).
+    assert not qualifies_for_peer_z_sport(row, "mlb", min_games=1)

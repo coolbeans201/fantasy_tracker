@@ -34,7 +34,9 @@ def _col(raw: pd.DataFrame, *names: str) -> pd.Series:
     return pd.Series([None] * len(raw), index=raw.index)
 
 
-def fetch_season(end_year: int) -> pd.DataFrame:
+def fetch_season(
+    end_year: int, *, use_rosters: bool = True, refresh_positions: bool = False
+) -> pd.DataFrame:
     from nba_api.stats.endpoints import leaguedashplayerstats
 
     season = _season_str(end_year)
@@ -47,7 +49,11 @@ def fetch_season(end_year: int) -> pd.DataFrame:
     raw = resp.get_data_frames()[0]
     if raw.empty:
         return pd.DataFrame()
-    positions = fetch_season_positions(end_year)
+    positions = fetch_season_positions(
+        end_year,
+        use_rosters=use_rosters,
+        refresh_positions=refresh_positions,
+    )
     out = pd.DataFrame()
     out["player_id"] = raw["PLAYER_ID"].map(normalize_player_id)
     out["player_name"] = raw["PLAYER_NAME"].astype(str)
@@ -61,9 +67,10 @@ def fetch_season(end_year: int) -> pd.DataFrame:
     missing = out["position"].isna()
     if missing.any():
         print(
-            f"  WARNING: {int(missing.sum())} players missing position after roster/index merge"
+            f"  WARNING: {int(missing.sum())} players missing position after position lookup"
         )
-    out["position"] = out["position"].fillna("SF")
+    # Keep unknown positions blank/null rather than guessing.
+    out.loc[out["position"].isna(), "position"] = None
     out["team"] = _col(raw, "TEAM_ABBREVIATION").fillna("UNK").astype(str)
     games = pd.to_numeric(_col(raw, "GP"), errors="coerce").fillna(0).astype(int)
     out["games"] = games
@@ -78,10 +85,14 @@ def fetch_season(end_year: int) -> pd.DataFrame:
     return out
 
 
-def ingest_season(end_year: int) -> None:
+def ingest_season(
+    end_year: int, *, use_rosters: bool = True, refresh_positions: bool = False
+) -> None:
     init_schema()
     conn = get_connection()
-    frame = fetch_season(end_year)
+    frame = fetch_season(
+        end_year, use_rosters=use_rosters, refresh_positions=refresh_positions
+    )
     if frame.empty:
         print(f"No NBA data for season ending {end_year}.")
         conn.close()
@@ -117,7 +128,25 @@ def main() -> None:
         action="store_true",
         help="Stop bulk ingest on first error (default: skip and continue)",
     )
+    p.add_argument(
+        "--use-team-rosters",
+        action="store_true",
+        help="Deprecated: rosters are now used by default for more reliable positions.",
+    )
+    p.add_argument(
+        "--index-only",
+        action="store_true",
+        help="Use PlayerIndex-only position lookup (faster first run, less accurate).",
+    )
+    p.add_argument(
+        "--refresh-positions",
+        action="store_true",
+        help="Ignore disk cache and refetch NBA positions (writes data/cache/nba/).",
+    )
     args = p.parse_args()
+    if args.use_team_rosters and args.index_only:
+        p.error("Choose only one of --index-only or --use-team-rosters")
+    use_rosters = not args.index_only
 
     if args.bulk:
         years = range(args.from_year, args.to_year + 1)
@@ -129,7 +158,11 @@ def main() -> None:
         for end_year in years:
             print(f"--- NBA {end_year} ({_season_str(end_year)}) ---")
             try:
-                ingest_season(end_year)
+                ingest_season(
+                    end_year,
+                    use_rosters=use_rosters,
+                    refresh_positions=args.refresh_positions,
+                )
             except Exception as exc:
                 if args.fail_fast:
                     raise
@@ -140,7 +173,11 @@ def main() -> None:
             print(f"Skipped {len(skipped)} season(s): {skipped}")
             print("Re-run failed years, e.g. --season 2024")
     elif args.season is not None:
-        ingest_season(args.season)
+        ingest_season(
+            args.season,
+            use_rosters=use_rosters,
+            refresh_positions=args.refresh_positions,
+        )
     else:
         p.error("Provide --season YEAR or --bulk with --from-year and --to-year")
 

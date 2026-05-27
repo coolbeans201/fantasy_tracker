@@ -2,6 +2,7 @@
 data/*.duckdb
 data/*.parquet
 data/manifest.json
+data/cache/
 
 # Python
 __pycache__/

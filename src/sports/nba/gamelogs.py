@@ -31,11 +31,14 @@ def fetch_player_gamelog(player_id: str, end_year: int) -> pd.DataFrame:
     raw = resp.get_data_frames()[0]
     if raw.empty:
         return pd.DataFrame()
-    out = pd.DataFrame()
+    out = pd.DataFrame(index=raw.index.copy())
     out["player_id"] = str(player_id)
     out["player_name"] = raw.get("PLAYER_NAME", pd.Series([None] * len(raw)))
     out["season"] = end_year
-    out["game_id"] = raw["Game_ID"].astype(str)
+    if "Game_ID" in raw.columns:
+        out["game_id"] = raw["Game_ID"].astype(str)
+    else:
+        out["game_id"] = raw.get("GAME_ID", pd.Series([None] * len(raw))).astype(str)
     out["game_date"] = pd.to_datetime(raw["GAME_DATE"], errors="coerce").dt.date
     out["game_index"] = range(1, len(out) + 1)
     out["team"] = raw.get("TEAM_ABBREVIATION", pd.Series(["UNK"] * len(raw))).astype(str)
@@ -75,7 +78,9 @@ def ingest_season_gamelogs(conn, end_year: int, *, limit_players: int | None = N
     conn.execute("DELETE FROM nba_player_game_stats WHERE season = ?", [end_year])
     total = 0
     for _, row in players.iterrows():
-        pid = str(row["player_id"])
+        pid = str(row["player_id"]).strip()
+        if not pid or pid.lower() in {"nan", "none", "<na>"}:
+            continue
         try:
             frame = fetch_player_gamelog(pid, end_year)
         except Exception:
@@ -84,6 +89,21 @@ def ingest_season_gamelogs(conn, end_year: int, *, limit_players: int | None = N
             continue
         if "player_name" not in frame.columns or frame["player_name"].isna().all():
             frame["player_name"] = row.get("player_name")
+        frame["player_id"] = frame["player_id"].astype(str).str.strip()
+        frame["game_id"] = frame["game_id"].astype(str).str.strip()
+        frame = frame[
+            frame["player_id"].ne("")
+            & frame["player_id"].str.lower().ne("nan")
+            & frame["player_id"].str.lower().ne("none")
+            & frame["player_id"].str.lower().ne("<na>")
+            & frame["game_id"].ne("")
+            & frame["game_id"].str.lower().ne("nan")
+            & frame["game_id"].str.lower().ne("none")
+            & frame["game_id"].str.lower().ne("<na>")
+        ]
+        frame = frame.drop_duplicates(subset=["player_id", "season", "game_id"], keep="first")
+        if frame.empty:
+            continue
         conn.register("_nba_games", frame)
         conn.execute("INSERT INTO nba_player_game_stats SELECT * FROM _nba_games")
         conn.unregister("_nba_games")

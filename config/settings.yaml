@@ -2,3 +2,10 @@
 
 # Default minimum games for leaderboards and peer-Z qualification (half a 17-game season)
 min_games_default: 8
+
+# Sport-specific defaults for non-NFL pages.
+min_games_default_by_sport:
+  nfl: 8
+  mlb: 200   # interpreted as hitter plate appearances in MLB leaders
+  nba: 41
+  nhl: 41

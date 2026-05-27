@@ -11,6 +11,7 @@ MLB_PLAYER_SEASON_COLUMNS: tuple[str, ...] = (
     "position",
     "team",
     "games",
+    "plate_appearances",
     "runs",
     "home_runs",
     "rbi",
@@ -41,6 +42,7 @@ CREATE TABLE IF NOT EXISTS mlb_player_season_stats (
     position VARCHAR NOT NULL,
     team VARCHAR,
     games INTEGER,
+    plate_appearances DOUBLE DEFAULT 0,
     runs DOUBLE DEFAULT 0,
     home_runs DOUBLE DEFAULT 0,
     rbi DOUBLE DEFAULT 0,
@@ -258,12 +260,30 @@ def _mlb_primary_key_columns(conn: duckdb.DuckDBPyConnection) -> list[str]:
     return []
 
 
+def _mlb_has_column(conn: duckdb.DuckDBPyConnection, col_name: str) -> bool:
+    try:
+        row = conn.execute(
+            """
+            SELECT 1
+            FROM information_schema.columns
+            WHERE lower(table_name) = 'mlb_player_season_stats'
+              AND lower(column_name) = ?
+            LIMIT 1
+            """,
+            [str(col_name).strip().lower()],
+        ).fetchone()
+        return row is not None
+    except duckdb.Error:
+        return False
+
+
 def _migrate_mlb_player_season_stats(conn: duckdb.DuckDBPyConnection) -> None:
     """Recreate MLB table unless PK is (player_id, season, position, team)."""
     if not _mlb_table_exists(conn):
         return
     names = _mlb_primary_key_columns(conn)
-    if names == ["player_id", "season", "position", "team"]:
+    has_pa = _mlb_has_column(conn, "plate_appearances")
+    if names == ["player_id", "season", "position", "team"] and has_pa:
         return
     try:
         existing = conn.execute("SELECT * FROM mlb_player_season_stats").df()
@@ -279,6 +299,7 @@ def _migrate_mlb_player_season_stats(conn: duckdb.DuckDBPyConnection) -> None:
             position VARCHAR NOT NULL,
             team VARCHAR,
             games INTEGER,
+            plate_appearances DOUBLE DEFAULT 0,
             runs DOUBLE DEFAULT 0,
             home_runs DOUBLE DEFAULT 0,
             rbi DOUBLE DEFAULT 0,
@@ -303,6 +324,8 @@ def _migrate_mlb_player_season_stats(conn: duckdb.DuckDBPyConnection) -> None:
             existing["position"] = "H"
         if "team" not in existing.columns:
             existing["team"] = "UNK"
+        if "plate_appearances" not in existing.columns:
+            existing["plate_appearances"] = 0.0
         from src.sports.mlb.teams import normalize_mlb_team
 
         existing["team"] = existing["team"].map(normalize_mlb_team)

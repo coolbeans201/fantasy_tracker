@@ -79,4 +79,14 @@ def distinct_teams_for_seasons(
         """,
         [int(s) for s in seasons],
     ).fetchall()
-    return [str(r[0]).strip() for r in rows if r[0] is not None]
+    teams = [str(r[0]).strip() for r in rows if r[0] is not None]
+    sid = str(sport_id).strip().lower()
+    if sid == "mlb":
+        from src.sports.mlb.teams import is_combined_team_label
+
+        teams = [t for t in teams if not is_combined_team_label(t)]
+    elif sid == "nhl":
+        from src.sports.nhl.teams import is_combined_team_label
+
+        teams = [t for t in teams if not is_combined_team_label(t)]
+    return teams

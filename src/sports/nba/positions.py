@@ -43,20 +43,11 @@ def normalize_nba_position(pos: str | None) -> str | None:
             return parts[0]
         if "PG" in parts:
             return "PG"
-        if "C" in parts and "F" not in parts and "G" not in parts:
-            return "C"
-        if "C" in parts and "F" in parts:
-            return "PF"
-        if "G" in parts and "F" in parts:
-            return "SG"
-        if "G" in parts:
-            return "SG"
-        if "F" in parts:
-            return "SF"
-    if p in ("G", "GUARD", "GF"):
-        return "SG"
-    if p in ("F", "FORWARD", "FC"):
-        return "SF"
+        # Ambiguous hybrids (G-F, F-C, etc.) are left unresolved by design.
+        return None
+    # Generic buckets are intentionally not coerced.
+    if p in ("G", "GUARD", "GF", "F", "FORWARD", "FC"):
+        return None
     return None
 
 

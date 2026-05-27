@@ -45,7 +45,7 @@ def test_season_leaders_window_mlb():
         """
         CREATE TABLE mlb_player_season_stats (
             player_id VARCHAR, player_name VARCHAR, season INTEGER, position VARCHAR,
-            team VARCHAR, games INTEGER, fantasy_points_espn DOUBLE,
+            team VARCHAR, games INTEGER, plate_appearances DOUBLE, fantasy_points_espn DOUBLE,
             runs DOUBLE, home_runs DOUBLE, rbi DOUBLE, stolen_bases DOUBLE,
             wins DOUBLE, strikeouts_pitch DOUBLE, saves DOUBLE, innings_pitched DOUBLE, era DOUBLE
         )
@@ -54,7 +54,7 @@ def test_season_leaders_window_mlb():
     conn.executemany(
         """
         INSERT INTO mlb_player_season_stats VALUES
-        (?, ?, ?, 'OF', 'NYY', 100, 200.0, 0,0,0,0,0,0,0,0,0)
+        (?, ?, ?, 'OF', 'NYY', 100, 350.0, 200.0, 0,0,0,0,0,0,0,0,0)
         """,
         [("p1", "Alice", 2022), ("p1", "Alice", 2023)],
     )

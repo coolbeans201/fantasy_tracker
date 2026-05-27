@@ -41,7 +41,11 @@ def main() -> None:
         print("No database found. Run ingest first.")
         sys.exit(1)
 
-    min_games = args.min_games if args.min_games is not None else get_min_games_default()
+    min_games = (
+        args.min_games
+        if args.min_games is not None
+        else get_min_games_default(args.sport)
+    )
     conn = get_connection(read_only=True)
     if args.sport == "nfl":
         summary = build_volume_summary_table(conn, args.season, min_games=min_games)
