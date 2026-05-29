@@ -19,6 +19,46 @@ from src.entities import is_dst_entity, make_dst_entity_id
 from src.positions import DST_POSITION, is_dst_position
 
 
+def ecr_ranks_look_overall(draft: pd.DataFrame) -> bool:
+    """True when raw ECR values look like an overall list, not a position board."""
+    if draft.empty or "ecr_rank" not in draft.columns or "position" not in draft.columns:
+        return False
+    ranks = pd.to_numeric(draft["ecr_rank"], errors="coerce")
+    for _pos, group in draft.groupby("position", dropna=False):
+        g_ranks = ranks.loc[group.index].dropna()
+        if g_ranks.empty:
+            continue
+        if float(g_ranks.max()) > max(120, len(g_ranks) * 1.5):
+            return True
+    return False
+
+
+def assign_positional_ecr_ranks(
+    df: pd.DataFrame,
+    *,
+    rank_col: str = "ecr_rank",
+    out_col: str | None = None,
+) -> pd.DataFrame:
+    """
+    Within each position, rank players by raw ECR (ascending: lower = better).
+
+    Use when the source list is overall (e.g. FantasyPros MLB ``ALL``) so draft
+    rank is comparable to positional finish rank.
+    """
+    out = df.copy()
+    if out.empty or rank_col not in out.columns:
+        return out
+    target = out_col or rank_col
+    raw = pd.to_numeric(out[rank_col], errors="coerce")
+    out[target] = np.nan
+    for _pos, group in out.groupby("position", dropna=False):
+        out.loc[group.index, target] = raw.loc[group.index].rank(
+            ascending=True, method="min"
+        )
+    out[target] = pd.to_numeric(out[target], errors="coerce")
+    return out
+
+
 def assign_positional_ranks(
     df: pd.DataFrame,
     *,
@@ -66,7 +106,7 @@ def compute_season_surprise_frame(
 
     rank_delta = draft_ecr - finish_rank (positive = outperformed draft rank).
     """
-    if not season_has_rankings(conn, season):
+    if not season_has_rankings(conn, season, sport="nfl"):
         return pd.DataFrame()
 
     stats = season_stats_for_peer_analysis(conn, season, preset, min_games=min_games)
@@ -79,7 +119,7 @@ def compute_season_surprise_frame(
         return pd.DataFrame()
 
     qualified = assign_positional_ranks(qualified)
-    ecr = load_ecr_draft(conn, season)
+    ecr = load_ecr_draft(conn, season, sport="nfl")
     if ecr.empty:
         return pd.DataFrame()
 
@@ -140,7 +180,7 @@ def enrich_leaders_with_surprise(
     surprise_df: pd.DataFrame | None = None,
 ) -> pd.DataFrame:
     """Attach draft_ecr, finish_rank, rank_delta to a season_leaders dataframe."""
-    if df.empty or not season_has_rankings(conn, season):
+    if df.empty or not season_has_rankings(conn, season, sport="nfl"):
         return df
 
     surprise = surprise_df
@@ -210,7 +250,7 @@ def compute_weekly_surprise_for_season(
     position: str | None,
 ) -> pd.DataFrame:
     """All player-weeks with weekly ECR, finish rank, rank_delta (qualified weeks only)."""
-    if not season_has_rankings(conn, season):
+    if not season_has_rankings(conn, season, sport="nfl"):
         return pd.DataFrame()
 
     weekly = weekly_stats_for_surprise(conn, season, preset, position)
@@ -249,7 +289,9 @@ def enrich_weekly_with_surprise(
     position: str | None,
 ) -> pd.DataFrame:
     """Add weekly_ecr, finish_rank, rank_delta to a player weekly frame."""
-    if weekly.empty or is_dst_position(position) or not season_has_rankings(conn, season):
+    if weekly.empty or is_dst_position(position) or not season_has_rankings(
+        conn, season, sport="nfl"
+    ):
         return weekly
 
     season_weekly = compute_weekly_surprise_for_season(conn, season, preset, position)

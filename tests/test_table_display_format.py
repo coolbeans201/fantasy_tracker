@@ -27,3 +27,20 @@ def test_counting_stats_are_integers():
     assert str(out["Passing Attempts"].dtype) == "Int64"
     assert int(out["Passing Attempts"].iloc[0]) == 319
     assert float(out["Fantasy Points"].iloc[0]) == 312.46
+
+
+def test_nba_counting_stats_display_as_integers():
+    from src.stats_columns import rename_stats_for_display
+
+    df = pd.DataFrame(
+        {
+            "points": [2072.0, 2036.8],
+            "rebounds": [889.0, 797.3],
+            "fantasy_points": [3500.12, 3400.56],
+        }
+    )
+    out = rename_stats_for_display(df)
+    assert str(out["Points"].dtype) == "Int64"
+    assert int(out["Points"].iloc[0]) == 2072
+    assert int(out["Points"].iloc[1]) == 2037
+    assert int(out["Rebounds"].iloc[1]) == 797

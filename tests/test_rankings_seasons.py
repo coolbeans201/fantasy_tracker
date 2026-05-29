@@ -13,6 +13,7 @@ def test_season_has_rankings_false_when_empty():
             player_id VARCHAR, season INTEGER, position VARCHAR,
             ecr_rank INTEGER, ecr_sd DOUBLE, player_name VARCHAR,
             team VARCHAR, fantasypros_id VARCHAR, scrape_date DATE,
+            sport VARCHAR DEFAULT 'nfl',
             PRIMARY KEY (player_id, season, position)
         )
         """
@@ -30,19 +31,20 @@ def test_season_has_rankings_true_for_present_season():
             player_id VARCHAR, season INTEGER, position VARCHAR,
             ecr_rank INTEGER, ecr_sd DOUBLE, player_name VARCHAR,
             team VARCHAR, fantasypros_id VARCHAR, scrape_date DATE,
+            sport VARCHAR DEFAULT 'nfl',
             PRIMARY KEY (player_id, season, position)
         )
         """
     )
     rows = ", ".join(
-        f"('00-{i:03d}', 2020, 'QB', {i}, NULL, 'P{i}', 'KC', NULL, NULL)"
+        f"('00-{i:03d}', 2020, 'QB', {i}, NULL, 'P{i}', 'KC', NULL, NULL, 'nfl')"
         for i in range(1, 51)
     )
     conn.execute(f"INSERT INTO ecr_draft VALUES {rows}")
     conn.execute(
         """
         INSERT INTO ecr_draft VALUES
-        ('00-100', 2021, 'RB', 5, NULL, 'B', 'DAL', NULL, NULL)
+        ('00-100', 2021, 'RB', 5, NULL, 'B', 'DAL', NULL, NULL, 'nfl')
         """
     )
     assert season_has_rankings(conn, 2020) is True

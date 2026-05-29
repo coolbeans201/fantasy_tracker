@@ -20,7 +20,7 @@ from src.text_encoding import normalize_unicode_text
 _CACHE_DIR = Path(__file__).resolve().parents[2] / "data" / "cache" / "fantasypros"
 
 _NBA_GENERIC = frozenset({"G", "GUARD", "F", "FORWARD", "GF", "FG", "FC", "CF"})
-_MLB_COARSE_HITTER = frozenset({"H", "UTIL", "OF", ""})
+_MLB_COARSE_HITTER = frozenset({"H", "DH", "UTIL", "OF", ""})
 
 
 def fantasypros_configured() -> bool:

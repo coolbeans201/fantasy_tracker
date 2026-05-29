@@ -83,13 +83,13 @@ def _primary_position(sport_id: str, row: dict[str, Any]) -> str | None:
         return None
 
     if sid == "nba":
-        from src.sports.nba.positions import normalize_nba_position
+        from src.sports.nba.positions import normalize_nba_ecr_position
 
-        return normalize_nba_position(pos) or pos
+        return normalize_nba_ecr_position(pos)
     if sid == "mlb":
-        from src.sports.mlb.positions import normalize_mlb_field_position
+        from src.sports.mlb.positions import normalize_mlb_ecr_position
 
-        return normalize_mlb_field_position(pos) or pos
+        return normalize_mlb_ecr_position(pos)
     if sid == "nhl":
         from src.sports.nhl.positions import normalize_nhl_skater_position
         from src.sports.nhl.positions import GOALIE_POSITION, is_goalie_position
@@ -105,6 +105,7 @@ def consensus_rankings_to_draft_ecr(
     *,
     sport_id: str,
     season: int,
+    position_bucket: str | None = None,
 ) -> pd.DataFrame:
     """``consensus-rankings`` response → draft ECR frame (pre-map)."""
     players = payload.get("players") or []
@@ -124,6 +125,15 @@ def consensus_rankings_to_draft_ecr(
         if fpid is None or rank is None or rank < 1:
             continue
         pos = _primary_position(sport_id, p)
+        sid = str(sport_id).strip().lower()
+        if sid == "mlb":
+            from src.sports.mlb.positions import normalize_mlb_ecr_position
+
+            pos = normalize_mlb_ecr_position(pos, position_bucket=position_bucket)
+        elif sid == "nba":
+            from src.sports.nba.positions import normalize_nba_ecr_position
+
+            pos = normalize_nba_ecr_position(pos, position_bucket=position_bucket)
         if not pos:
             continue
         rows.append(

@@ -14,6 +14,7 @@ def render_surprise_highlights(
     *,
     season: int,
     position_label: str | None = None,
+    caption: str | None = None,
 ) -> None:
     """Top outperformers and underperformers for a season."""
     if surprise_df is None or surprise_df.empty:
@@ -45,7 +46,7 @@ def render_surprise_highlights(
             hide_index=True,
         )
 
-    st.caption(format_surprise_caption())
+    st.caption(caption or format_surprise_caption())
 
 
 def render_surprise_metrics_row(metrics: dict | None) -> None:

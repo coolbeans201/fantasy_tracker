@@ -10,7 +10,7 @@ def test_apply_regular_season_games_overlays_mlbam_match():
                 "player_id": "660271",
                 "team": "LAD",
                 "games": 175,
-                "position": "H",
+                "position": "DH",
             }
         ]
     )

@@ -617,39 +617,49 @@ def has_rankings_data(conn: duckdb.DuckDBPyConnection) -> bool:
         return False
 
 
-def list_rankings_seasons(conn: duckdb.DuckDBPyConnection) -> list[int]:
+def list_rankings_seasons(
+    conn: duckdb.DuckDBPyConnection,
+    sport: str = "nfl",
+) -> list[int]:
     """Seasons with enough preseason draft ECR rows for beat-draft-rank features."""
     from src.analytics.variance import load_thresholds
 
     if not has_rankings_data(conn):
         return []
     min_rows = int(load_thresholds().get("min_ecr_rows_per_season", 50))
+    sid = str(sport).strip().lower()
     try:
         rows = conn.execute(
             """
             SELECT season FROM ecr_draft
+            WHERE sport = ?
             GROUP BY season
             HAVING COUNT(*) >= ?
             ORDER BY season
             """,
-            [min_rows],
+            [sid, min_rows],
         ).fetchall()
         return [int(r[0]) for r in rows]
     except duckdb.Error:
         return []
 
 
-def season_has_rankings(conn: duckdb.DuckDBPyConnection, season: int) -> bool:
+def season_has_rankings(
+    conn: duckdb.DuckDBPyConnection,
+    season: int,
+    sport: str = "nfl",
+) -> bool:
     """True if enough draft ECR exists for this season to show beat-draft-rank UI."""
     from src.analytics.variance import load_thresholds
 
     if not has_rankings_data(conn):
         return False
     min_rows = int(load_thresholds().get("min_ecr_rows_per_season", 50))
+    sid = str(sport).strip().lower()
     try:
         row = conn.execute(
-            "SELECT COUNT(*) FROM ecr_draft WHERE season = ?",
-            [int(season)],
+            "SELECT COUNT(*) FROM ecr_draft WHERE season = ? AND sport = ?",
+            [int(season), sid],
         ).fetchone()
         return bool(row and row[0] and int(row[0]) >= min_rows)
     except duckdb.Error:
@@ -659,9 +669,10 @@ def season_has_rankings(conn: duckdb.DuckDBPyConnection, season: int) -> bool:
 def rankings_seasons_in_window(
     conn: duckdb.DuckDBPyConnection,
     seasons: list[int],
+    sport: str = "nfl",
 ) -> list[int]:
     """Intersection of sidebar seasons and seasons with draft ECR."""
-    available = set(list_rankings_seasons(conn))
+    available = set(list_rankings_seasons(conn, sport=sport))
     return sorted(int(s) for s in seasons if int(s) in available)
 
 
@@ -692,13 +703,14 @@ def load_ecr_draft(
     conn: duckdb.DuckDBPyConnection,
     season: int,
     position: str | None = None,
+    sport: str = "nfl",
 ) -> pd.DataFrame:
     query = """
         SELECT player_id, season, position, ecr_rank, player_name, team
         FROM ecr_draft
-        WHERE season = ?
+        WHERE season = ? AND sport = ?
     """
-    params: list = [season]
+    params: list = [season, str(sport).strip().lower()]
     if position:
         query += " AND position = ?"
         params.append(position)

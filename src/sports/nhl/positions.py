@@ -20,6 +20,11 @@ def leader_position_options() -> list[str]:
     return [LEGACY_SKATER] + SKATER_POSITIONS + [GOALIE_POSITION]
 
 
+def default_leader_selection() -> list[str]:
+    """Season Leaders multiselect default: all skater positions (not goalies)."""
+    return list(SKATER_POSITIONS)
+
+
 def is_goalie_position(pos: str | None) -> bool:
     p = str(pos or "").strip().upper()
     return p in (GOALIE_POSITION, LEGACY_GOALIE, "GOALIE", "GOALTENDER")
@@ -65,16 +70,18 @@ def expand_leader_positions(selected: list[str] | None) -> list[str] | None:
 
 
 def _skater_subset(selected: list[str]) -> list[str]:
-    if LEGACY_SKATER in selected:
-        return list(SKATER_POSITIONS)
     skaters = [p for p in selected if p in SKATER_POSITIONS]
-    return skaters or list(SKATER_POSITIONS)
+    if skaters:
+        return skaters
+    if LEGACY_SKATER in selected:
+        return [LEGACY_SKATER]
+    return []
 
 
 def _goalie_subset(selected: list[str]) -> list[str]:
     if LEGACY_GOALIE in selected or GOALIE_POSITION in selected:
         return [GOALIE_POSITION]
-    return [GOALIE_POSITION]
+    return []
 
 
 def _is_goalie_pick(pos: str) -> bool:
@@ -103,7 +110,7 @@ def coerce_leader_selection(
     prev = list(previous or [])
 
     if not sel:
-        return list(SKATER_POSITIONS)
+        return default_leader_selection() if not prev else []
 
     added = set(sel) - set(prev)
     removed = set(prev) - set(sel)
@@ -131,17 +138,23 @@ def coerce_leader_selection(
     if is_skater_only_selection(prev):
         return _skater_subset(prev)
 
-    return list(SKATER_POSITIONS)
+    return sel
 
 
 def is_goalie_only_selection(positions: list[str] | None) -> bool:
-    expanded = expand_leader_positions(positions) or []
-    return bool(expanded) and all(is_goalie_position(p) for p in expanded)
+    if not positions:
+        return False
+    return not any(_is_skater_pick(p) for p in positions) and any(
+        _is_goalie_pick(p) for p in positions
+    )
 
 
 def is_skater_only_selection(positions: list[str] | None) -> bool:
-    expanded = expand_leader_positions(positions) or []
-    return bool(expanded) and all(not is_goalie_position(p) for p in expanded)
+    if not positions:
+        return False
+    return not any(_is_goalie_pick(p) for p in positions) and any(
+        _is_skater_pick(p) for p in positions
+    )
 
 
 COMPARE_GROUP_SKATER = "skater"

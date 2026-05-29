@@ -28,10 +28,13 @@ from app.sport_season_scope import (
     profile_season_scope_caption,
     sync_profile_sidebar_seasons,
 )
+from app.surprise_ui import render_surprise_metrics_row
 from src.analytics.metrics import peak_season_year
+from src.analytics.sport_surprise import season_surprise_for_entity_sport
 from src.analytics.peer_z_sport import peer_df_for_entity_season_sport, peer_z_score_sport
 from src.analytics.sport_variance import add_volume_flags_sport
 from src.db.connection import db_exists
+from src.db.queries import season_has_rankings
 from src.season_selection import format_season_span, metric_window_caption
 from src.sports.display_stats import display_stats_for_sport
 from src.sports.player_career import player_career_seasons, sort_career_rows
@@ -231,6 +234,7 @@ def _render_season_detail_section(
     career: pd.DataFrame,
     min_games: int,
     game_unit: str,
+    preset_key: str,
 ) -> None:
     """Season pane: snapshot, splits, game chart, game table (mirrors NFL weekly layout)."""
     st.divider()
@@ -273,10 +277,27 @@ def _render_season_detail_section(
         title_case_ui("Peer Z (season)"),
         f"{peer_z:+.2f}" if peer_z is not None else "—",
     )
-    c4.metric(
-        title_case_ui("Career Z"),
-        f"{career_z:+.2f}" if career_z is not None else "—",
-    )
+    surprise = None
+    if season_has_rankings(conn, detail_season, sport=sport_id):
+        surprise = season_surprise_for_entity_sport(
+            conn,
+            sport_id,
+            player_id,
+            detail_season,
+            preset_key,
+            min_games=min_games,
+            position=primary.get("position"),
+        )
+    used_c4 = False
+    if surprise:
+        c4.metric(title_case_ui("Rank Δ vs draft"), f"{surprise['rank_delta']:+d}")
+        used_c4 = True
+    elif career_z is not None:
+        c4.metric(title_case_ui("Career Z"), f"{career_z:+.2f}")
+        used_c4 = True
+    elif not used_c4:
+        c4.metric(title_case_ui("Career Z"), "—")
+    render_surprise_metrics_row(surprise)
 
     if multi_stint:
         st.markdown(section_h3(f"Team / role splits ({detail_season})"))
@@ -598,4 +619,5 @@ def render_sport_profile_page(sport_id: str, *, label: str) -> None:
                 career=career,
                 min_games=min_games,
                 game_unit=meta.game_unit,
+                preset_key=controls["preset_key"],
             )

@@ -26,6 +26,18 @@ def test_adding_hitter_drops_pitchers():
     assert "SP" not in out
 
 
+def test_partial_hitter_selection_is_preserved():
+    all_hitters = ["CF", "1B", "2B", "3B", "SS", "LF", "RF", "OF", "DH", "UTIL"]
+    out = coerce_leader_selection(["CF", "DH"], all_hitters)
+    assert out == ["CF", "DH"]
+
+
+def test_deselecting_hitter_keeps_remaining():
+    prev = ["CF", "1B", "2B"]
+    out = coerce_leader_selection(["CF", "1B"], prev)
+    assert out == ["CF", "1B"]
+
+
 def test_legacy_h_and_p_are_exclusive():
     assert is_hitter_only_selection(coerce_leader_selection(["H"], []))
     assert is_pitcher_only_selection(coerce_leader_selection(["P"], []))

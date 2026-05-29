@@ -21,6 +21,7 @@ from src.rankings.fantasypros_parse import (
     projections_to_frame,
 )
 from src.rankings.rankings_store import insert_ecr_draft, insert_fp_projections
+from src.rankings.mlb_ecr_positions import sync_mlb_pitcher_ecr_positions
 from src.rankings.sport_map_players import (
     attach_sport_player_ids,
     fp_name_overlap_rate,
@@ -33,14 +34,24 @@ _CONSENSUS_DRAFT_SPORTS = frozenset({"nba", "nfl", "mlb", "nhl"})
 _PLAYERS_LIST_SPORTS = frozenset({"mlb", "nhl"})
 _PROJECTION_SPORTS = frozenset({"nba", "mlb", "nfl"})
 
-_NBA_CONSENSUS_POSITIONS = ("ALL", "PG", "SG", "SF", "PF", "C")
+# Position-specific lists only (``ALL`` uses overall ranks and breaks beat-draft-rank).
+_NBA_CONSENSUS_POSITIONS = ("PG", "SG", "SF", "PF", "C")
+# SP/RP lists = true positional draft ranks; H = hitter bucket (not overall ALL).
+_MLB_CONSENSUS_POSITIONS = ("SP", "RP", "H")
+# Positional boards when available; ``/players`` list remains fallback for NHL.
+_NHL_CONSENSUS_POSITIONS = ("C", "LW", "RW", "D", "G")
 # Fewer calls than full position list — use ALL + hitter/pitcher buckets for rate limits.
 _MLB_PROJECTION_POSITIONS = ("ALL", "H", "P")
 
 
 def _consensus_positions(sport_id: str) -> tuple[str, ...]:
-    if sport_id.strip().lower() == "nba":
+    sid = sport_id.strip().lower()
+    if sid == "nba":
         return _NBA_CONSENSUS_POSITIONS
+    if sid == "mlb":
+        return _MLB_CONSENSUS_POSITIONS
+    if sid == "nhl":
+        return _NHL_CONSENSUS_POSITIONS
     return ("ALL",)
 
 
@@ -61,18 +72,35 @@ def _fetch_draft_ecr_raw(
         last_error: FantasyProsAPIError | None = None
         positions = _consensus_positions(sid)
         for pos in positions:
-            try:
-                payload = get_json(
-                    consensus_rankings_path(sid, year),
-                    params={"position": pos, "type": "draft"},
-                )
-            except FantasyProsAPIError as exc:
-                last_error = exc
+            payload = None
+            for rate_attempt in range(3):
+                try:
+                    payload = get_json(
+                        consensus_rankings_path(sid, year),
+                        params={"position": pos, "type": "draft"},
+                    )
+                    break
+                except FantasyProsAPIError as exc:
+                    last_error = exc
+                    if "429" not in str(exc) or rate_attempt >= 2:
+                        payload = None
+                        break
+                    wait = 65.0 * (rate_attempt + 1)
+                    print(
+                        f"  FantasyPros 429 for {sid.upper()} {pos} draft board; "
+                        f"waiting {wait:.0f}s before retry "
+                        f"({rate_attempt + 2}/3)…"
+                    )
+                    time.sleep(wait)
+            if payload is None:
                 continue
             if api_reported_season is None:
                 api_reported_season = payload.get("season") or payload.get("year")
             chunk = consensus_rankings_to_draft_ecr(
-                payload, sport_id=sid, season=year
+                payload,
+                sport_id=sid,
+                season=year,
+                position_bucket=pos if sid in ("mlb", "nba") else None,
             )
             if not chunk.empty:
                 parts.append(chunk)
@@ -222,6 +250,8 @@ def ingest_sport_draft_ecr(
         }
 
     mapped, unmapped = attach_sport_player_ids(raw, conn, sid, year)
+    if sid == "mlb" and not mapped.empty:
+        mapped, _ = sync_mlb_pitcher_ecr_positions(mapped, conn, year)
     if replace:
         conn.execute(
             "DELETE FROM ecr_draft WHERE sport = ? AND season = ?",

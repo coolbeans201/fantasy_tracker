@@ -34,6 +34,12 @@ def test_leader_selection_defaults_to_offense():
     assert normalize_leader_selection(None) == OFFENSE_POSITIONS
 
 
+def test_coerce_clearing_offense_tags_stays_empty():
+    all_offense = ["QB", "RB", "WR", "TE"]
+    assert coerce_leader_selection([], all_offense) == []
+    assert coerce_leader_selection(["RB", "WR"], all_offense) == ["RB", "WR"]
+
+
 def test_leader_selection_k_and_dst_alone_only():
     assert coerce_leader_selection(["K", "QB"], ["K"]) == ["QB"]
     assert coerce_leader_selection(["DST", "WR"], ["DST"]) == ["WR"]

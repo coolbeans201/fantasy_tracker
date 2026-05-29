@@ -6,14 +6,26 @@ import streamlit as st
 
 from app.components import get_db, render_sidebar
 from app.leader_navigation import render_leaders_table
+from app.surprise_ui import render_surprise_highlights
 from src.analytics.metrics import add_fp_per_game
 from src.analytics.peer_z_sport import enrich_leaders_dataframe_sport
+from src.analytics.sport_surprise import (
+    compute_sport_season_surprise_frame,
+    enrich_leaders_with_surprise_sport,
+    format_sport_surprise_caption,
+)
 from src.db.connection import db_exists
+from src.db.queries import season_has_rankings
 from src.season_selection import format_season_label, format_season_span, metric_window_caption
 from src.sports.player_seasons import distinct_teams_for_seasons
-from src.sports.registry import get_sport, season_leaders, season_leaders_window
+from src.sports.registry import (
+    default_leader_selection,
+    get_sport,
+    season_leaders,
+    season_leaders_window,
+)
 from src.sports.display_stats import display_stats_for_leader_selection
-from src.stats_columns import rename_stats_for_display
+from src.stats_columns import column_display_label, rename_stats_for_display
 from src.ui_text import page_title_suffix, title_case_ui
 
 
@@ -37,15 +49,20 @@ def _coerce_leader_positions_list(
 def _position_help(sport_id: str) -> str:
     if sport_id == "mlb":
         return (
-            "Do not mix **hitters** and **pitchers**. Pick **H** (all field positions) "
-            "or **P** / **SP** / **RP** for pitchers — not both."
+            "Defaults to all hitter positions (C, 1B, 2B, …). Do not mix hitters and "
+            "pitchers. **H** / **P** are shortcuts for the full hitter or pitcher groups. "
+            "Remove tags to narrow — empty clears the filter."
         )
     if sport_id == "nhl":
         return (
-            "Do not mix **skaters** and **goalies**. Pick **S** (all skater positions) "
-            "or **G** for goalies — not both."
+            "Defaults to all skater positions (C, LW, RW, D, F). Do not mix skaters and "
+            "goalies. **S** selects all skaters; **G** is goalies only. Remove tags to "
+            "narrow — empty clears the filter."
         )
-    return "Pick one or more of **PG** through **C**."
+    return (
+        "Defaults to **all positions** (PG–C). Click the **×** on each tag to remove it "
+        "and narrow the leaderboard."
+    )
 
 
 def render_sport_leaders_page(sport_id: str) -> None:
@@ -76,26 +93,28 @@ def render_sport_leaders_page(sport_id: str) -> None:
     legacy_pos_key = f"sport_leaders_positions_{sport_id}"
     ui_pos_key = f"{legacy_pos_key}_ui"
     prev_key = f"{legacy_pos_key}_prev"
+    defaults_ver_key = f"{legacy_pos_key}_defaults_ver"
+    defaults_ver = {"nba": 2, "mlb": 1, "nhl": 1}.get(sport_id)
 
     if ui_pos_key not in st.session_state:
         if legacy_pos_key in st.session_state:
             st.session_state[ui_pos_key] = list(st.session_state[legacy_pos_key])
         else:
-            st.session_state[ui_pos_key] = list(controls["fantasy_positions"][:1])
+            st.session_state[ui_pos_key] = list(default_leader_selection(sport_id))
+        if defaults_ver is not None:
+            st.session_state[defaults_ver_key] = defaults_ver
+    elif defaults_ver is not None and st.session_state.get(defaults_ver_key, 0) < defaults_ver:
+        current = list(st.session_state.get(ui_pos_key, []))
+        legacy_default = {"nba": ["PG"], "mlb": ["H"], "nhl": ["S"]}.get(sport_id)
+        if legacy_default and current == legacy_default:
+            st.session_state[ui_pos_key] = list(default_leader_selection(sport_id))
+            st.session_state[defaults_ver_key] = defaults_ver
     if prev_key not in st.session_state:
         st.session_state[prev_key] = list(st.session_state[ui_pos_key])
 
-    raw = list(st.session_state[ui_pos_key])
-    prev = st.session_state.get(prev_key, raw)
-    coerced = _coerce_leader_positions_list(sport_id, raw, prev)
-    if coerced != raw:
-        st.session_state.pop(ui_pos_key, None)
-        st.session_state[ui_pos_key] = list(coerced)
-    st.session_state[prev_key] = list(coerced)
-
     def _on_positions_changed() -> None:
         r = list(st.session_state[ui_pos_key])
-        p = st.session_state.get(prev_key, r)
+        p = st.session_state.get(prev_key, [])
         c = _coerce_leader_positions_list(sport_id, r, p)
         st.session_state[ui_pos_key] = c
         st.session_state[prev_key] = list(c)
@@ -108,10 +127,10 @@ def render_sport_leaders_page(sport_id: str) -> None:
         help=_position_help(sport_id),
     )
 
-    raw_after = list(st.session_state[ui_pos_key])
-    prev_after = st.session_state.get(prev_key, raw_after)
-    positions = _coerce_leader_positions_list(sport_id, raw_after, prev_after)
-    st.session_state[prev_key] = list(positions)
+    positions = list(st.session_state[ui_pos_key])
+    if not positions:
+        st.info("Select at least one position to view season leaders.")
+        st.stop()
 
     if is_window:
         st.caption(
@@ -136,6 +155,10 @@ def render_sport_leaders_page(sport_id: str) -> None:
         if sport_id in ("mlb", "nhl") and team_filter in (None, "All"):
             st.caption(
                 "Mid-season trades appear as **one row per team** (stats for that stint only)."
+            )
+        elif sport_id == "nba" and team_filter in (None, "All"):
+            st.caption(
+                "Season totals are **one row per player** (all teams combined for that season)."
             )
 
     team_arg = (
@@ -172,6 +195,7 @@ def render_sport_leaders_page(sport_id: str) -> None:
         st.stop()
 
     df = add_fp_per_game(df)
+    surprise_all = None
     if not is_window and controls.get("era_z"):
         df = enrich_leaders_dataframe_sport(
             conn,
@@ -195,6 +219,25 @@ def render_sport_leaders_page(sport_id: str) -> None:
     elif controls.get("era_z"):
         st.caption("Peer Z (era) is not shown for multi-season window leaders.")
 
+    if not is_window and season_has_rankings(conn, int(season), sport=sport_id):
+        surprise_all = compute_sport_season_surprise_frame(
+            conn,
+            sport_id,
+            int(season),
+            controls["preset_key"],
+            min_games=controls["min_games"],
+        )
+        if surprise_all is not None and not surprise_all.empty:
+            df = enrich_leaders_with_surprise_sport(
+                conn,
+                sport_id,
+                df,
+                int(season),
+                controls["preset_key"],
+                min_games=controls["min_games"],
+                surprise_df=surprise_all,
+            )
+
     stat_cols = [
         c
         for c in display_stats_for_leader_selection(sport_id, positions)
@@ -215,6 +258,9 @@ def render_sport_leaders_page(sport_id: str) -> None:
         )
         if c in df.columns
     ]
+    for col in ("draft_ecr", "finish_rank", "rank_delta"):
+        if col in df.columns and col not in display:
+            display.append(col)
     display += [c for c in stat_cols if c not in display]
     if "seasons_in_window" in display and not is_window:
         display = [c for c in display if c != "seasons_in_window"]
@@ -240,12 +286,36 @@ def render_sport_leaders_page(sport_id: str) -> None:
     ]
     if not is_window and "peer_z_season" in df.columns:
         _sort_options.append((title_case_ui("Peer Z (season)"), "peer_z_season"))
+    if (
+        not is_window
+        and surprise_all is not None
+        and not surprise_all.empty
+        and "rank_delta" in df.columns
+    ):
+        _sort_options.append((column_display_label("rank_delta"), "rank_delta"))
     _sort_labels = [a for a, _ in _sort_options]
     _sort_map = dict(_sort_options)
     sort_by = st.selectbox(title_case_ui("Sort by"), _sort_labels, index=0)
     sort_col = _sort_map[sort_by]
     if sort_col in df.columns:
         df = df.sort_values(sort_col, ascending=False, na_position="last")
+
+    if surprise_all is not None and not surprise_all.empty:
+        from src.sports.peer_positions import positions_for_peer_grouping
+
+        expanded = [
+            positions_for_peer_grouping(sport_id, p)
+            for p in positions
+            if positions_for_peer_grouping(sport_id, p) in surprise_all["position"].unique()
+        ]
+        if expanded:
+            surprise_all = surprise_all[surprise_all["position"].isin(expanded)]
+        with st.expander(title_case_ui("Winners & losers vs draft rank"), expanded=False):
+            render_surprise_highlights(
+                surprise_all,
+                season=int(season),
+                caption=format_sport_surprise_caption(sport_id),
+            )
 
     name_col = title_case_ui("Player")
     table_df = df.reset_index(drop=True)
@@ -268,6 +338,15 @@ def render_sport_leaders_page(sport_id: str) -> None:
             use_container_width=True,
             hide_index=True,
         )
+
+    if stat_cols:
+        with st.expander(title_case_ui("All stats"), expanded=False):
+            extra = [c for c in display if c in table_df.columns]
+            st.dataframe(
+                rename_stats_for_display(table_df[extra]),
+                use_container_width=True,
+                hide_index=True,
+            )
 
     csv_tag = format_season_label([int(s) for s in seasons]) if is_window else str(season)
     st.download_button(

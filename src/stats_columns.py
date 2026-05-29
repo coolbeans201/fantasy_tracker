@@ -426,9 +426,28 @@ def rename_compare_career_merge(
 
 def _counting_stat_keys() -> frozenset[str]:
     from src.kicker_columns import KICKER_STAT_COLUMNS
+    from src.sports.display_stats import (
+        MLB_HITTER_STATS,
+        MLB_PITCHER_STATS,
+        NBA_STATS,
+        NHL_GOALIE_STATS,
+        NHL_SKATER_STATS,
+    )
     from src.team_dst_columns import DST_STAT_COLUMNS
 
-    return frozenset(STAT_COLUMNS) | frozenset(KICKER_STAT_COLUMNS) | frozenset(DST_STAT_COLUMNS)
+    sport_counting = (
+        set(NBA_STATS)
+        | set(MLB_HITTER_STATS)
+        | set(NHL_SKATER_STATS)
+        | set(NHL_GOALIE_STATS)
+        | {k for k in MLB_PITCHER_STATS if k != "era"}
+    )
+    return (
+        frozenset(STAT_COLUMNS)
+        | frozenset(KICKER_STAT_COLUMNS)
+        | frozenset(DST_STAT_COLUMNS)
+        | frozenset(sport_counting)
+    )
 
 
 _META_INTEGER_KEYS = frozenset({"season", "week", "games", "best_week"})

@@ -44,7 +44,7 @@ def test_mlb_overlay_skips_hitter_when_sp_row_exists(monkeypatch):
                 "player_id": 110683,
                 "player_name": "Test Player",
                 "team": "SEATTLE",
-                "position": "H",
+                "position": "DH",
                 "season": 2008,
             },
             {
@@ -75,5 +75,5 @@ def test_mlb_overlay_skips_hitter_when_sp_row_exists(monkeypatch):
 
     out, updated = overlay_positions_on_frame(frame, "mlb")
     assert updated == 0
-    assert out.loc[out["position"] == "H", "position"].iloc[0] == "H"
+    assert out.loc[out["position"] == "DH", "position"].iloc[0] == "DH"
     assert out.loc[out["position"] == "SP", "position"].iloc[0] == "SP"

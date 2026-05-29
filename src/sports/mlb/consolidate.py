@@ -5,7 +5,7 @@ from __future__ import annotations
 import pandas as pd
 
 from src.db.sport_schema import MLB_PLAYER_SEASON_COLUMNS
-from src.sports.mlb.positions import is_pitcher_position
+from src.sports.mlb.positions import is_pitcher_position, normalize_mlb_position
 from src.sports.mlb.scoring import compute_hitter_fp, compute_pitcher_fp
 from src.sports.mlb.teams import (
     is_combined_team_label,
@@ -64,7 +64,11 @@ def consolidate_mlb_season_frame(frame: pd.DataFrame) -> pd.DataFrame:
         .str.strip()
         .str.replace(r"\.0$", "", regex=True)
     )
-    out["position"] = out["position"].astype(str).str.strip().str.upper()
+    out["position"] = (
+        out["position"]
+        .map(lambda p: normalize_mlb_position(p) or str(p).strip().upper())
+        .astype(str)
+    )
     out["team"] = out["team"].map(normalize_mlb_team)
     out = drop_redundant_summary_team_rows(out)
 

@@ -167,6 +167,28 @@ def leader_position_options(sport_id: str) -> list[str]:
     return []
 
 
+def default_leader_selection(sport_id: str) -> list[str]:
+    sid = sport_id.strip().lower()
+    if sid == "nfl":
+        from src.sports.nfl.positions import default_leader_selection
+
+        return default_leader_selection()
+    if sid == "mlb":
+        from src.sports.mlb.positions import default_leader_selection
+
+        return default_leader_selection()
+    if sid == "nba":
+        from src.sports.nba.positions import default_leader_selection
+
+        return default_leader_selection()
+    if sid == "nhl":
+        from src.sports.nhl.positions import default_leader_selection
+
+        return default_leader_selection()
+    opts = leader_position_options(sid)
+    return list(opts[:1]) if opts else []
+
+
 def season_leaders_window(
     conn: duckdb.DuckDBPyConnection,
     sport_id: str,

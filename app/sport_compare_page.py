@@ -15,8 +15,10 @@ from app.sport_profile_entry import player_id_from_profile_link
 from app.sport_season_scope import compare_season_scope_caption, sync_compare_sidebar_seasons
 from src.analytics.metrics import add_fp_per_game
 from src.analytics.peer_z_sport import peer_df_for_entity_season_sport, peer_z_score_sport
+from src.analytics.sport_surprise import season_surprise_for_entity_sport
 from src.analytics.sport_variance import add_volume_flags_sport, compute_career_z_sport
 from src.db.connection import db_exists
+from src.db.queries import season_has_rankings
 from src.season_selection import format_season_span
 from src.sports.compare_cohort import (
     compare_cohorts_compatible,
@@ -361,6 +363,26 @@ def render_sport_compare_page(
                 title_case_ui("Peer Z"),
                 f"{pz_a:+.2f} vs {pz_b:+.2f}" if pz_a is not None and pz_b is not None else "—",
             )
+            if season_has_rankings(conn, pick_season, sport=sport_id):
+                for label, eid, row in (
+                    (name_a, player_a, ra),
+                    (name_b, player_b, rb),
+                ):
+                    surprise = season_surprise_for_entity_sport(
+                        conn,
+                        sport_id,
+                        eid,
+                        pick_season,
+                        controls["preset_key"],
+                        min_games=min_games,
+                        position=row["position"].iloc[0],
+                    )
+                    if surprise:
+                        st.caption(
+                            f"**{label}** — draft ECR {surprise['draft_ecr']}, "
+                            f"finish {surprise['finish_rank']}, "
+                            f"rank Δ {surprise['rank_delta']:+d}"
+                        )
 
     st.markdown(section_h3("Fantasy points by season"))
     merged = df_a.merge(df_b, on="season", suffixes=("_a", "_b"), how="outer").sort_values(

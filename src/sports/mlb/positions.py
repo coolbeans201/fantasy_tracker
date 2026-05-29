@@ -2,9 +2,12 @@
 
 from __future__ import annotations
 
-# Legacy coarse cohorts (pre–detailed-position ingests)
+# Legacy coarse cohorts (UI filters only — not stored on player rows)
 LEGACY_HITTER = "H"
 LEGACY_PITCHER = "P"
+
+# Stored when source has no field position (e.g. two-way hitters like Ohtani as DH).
+DEFAULT_HITTER_POSITION = "DH"
 
 FIELD_POSITIONS = ["C", "1B", "2B", "3B", "SS", "LF", "CF", "RF", "OF", "DH", "UTIL"]
 PITCHER_POSITIONS = ["SP", "RP"]
@@ -20,9 +23,38 @@ def leader_position_options() -> list[str]:
     return [LEGACY_HITTER, LEGACY_PITCHER] + FIELD_POSITIONS + PITCHER_POSITIONS
 
 
+def default_leader_selection() -> list[str]:
+    """Season Leaders multiselect default: all field positions (hitters only)."""
+    return list(FIELD_POSITIONS)
+
+
 def is_pitcher_position(pos: str | None) -> bool:
     p = str(pos or "").strip().upper()
     return p in PITCHER_POSITIONS or p == LEGACY_PITCHER
+
+
+def normalize_mlb_ecr_position(
+    position: str | None,
+    *,
+    position_bucket: str | None = None,
+) -> str | None:
+    """
+    Position label for draft ECR rows (must align with season-stats ``SP`` / ``RP``).
+
+    When FantasyPros is queried with ``position=SP`` or ``position=RP``, the bucket
+    wins over ambiguous player metadata (e.g. generic ``P``).
+    """
+    bucket = str(position_bucket or "").strip().upper()
+    if bucket in PITCHER_POSITIONS:
+        return bucket
+
+    p = normalize_mlb_position(position)
+    if not p or p == LEGACY_PITCHER:
+        return None
+    if p in PITCHER_POSITIONS:
+        return p
+    field = normalize_mlb_field_position(p)
+    return field or p
 
 
 def normalize_mlb_field_position(pos: str | None) -> str | None:
@@ -54,6 +86,14 @@ def normalize_mlb_field_position(pos: str | None) -> str | None:
         "CENTERFIELD": "CF",
         "RIGHTFIELD": "RF",
         "DESIGNATEDHITTER": "DH",
+        "H": "DH",
+        "HITTER": "DH",
+        "BAT": "DH",
+        "B": "DH",
+        "TWP": "DH",
+        "TW": "DH",
+        "TWOWAY": "DH",
+        "TWOWAYPLAYER": "DH",
     }
     if token in aliases:
         return aliases[token]
@@ -92,7 +132,7 @@ def normalize_mlb_position(role: str | None) -> str | None:
     if r in (LEGACY_PITCHER, "PITCHER"):
         return LEGACY_PITCHER
     if r in (LEGACY_HITTER, "B", "BAT", "HITTER"):
-        return LEGACY_HITTER
+        return DEFAULT_HITTER_POSITION
     field = normalize_mlb_field_position(r)
     if field:
         return field
@@ -109,11 +149,12 @@ def expand_leader_positions(selected: list[str] | None) -> list[str] | None:
     for pos in selected:
         p = str(pos).strip().upper()
         if p == LEGACY_HITTER:
-            expanded.extend(FIELD_POSITIONS + [LEGACY_HITTER])
+            expanded.extend(FIELD_POSITIONS)
+            expanded.append(LEGACY_HITTER)
         elif p == LEGACY_PITCHER:
             expanded.extend(PITCHER_POSITIONS)
         elif p in FIELD_POSITIONS:
-            expanded.extend([p, LEGACY_HITTER])
+            expanded.append(p)
         elif p in PITCHER_POSITIONS:
             expanded.append(p)
     if not expanded:
@@ -122,27 +163,37 @@ def expand_leader_positions(selected: list[str] | None) -> list[str] | None:
 
 
 def is_pitcher_only_selection(positions: list[str] | None) -> bool:
-    expanded = expand_leader_positions(positions) or []
-    return bool(expanded) and all(p in PITCHER_POSITIONS for p in expanded)
+    if not positions:
+        return False
+    return not any(_is_hitter_pick(p) for p in positions) and any(
+        _is_pitcher_pick(p) for p in positions
+    )
 
 
 def is_hitter_only_selection(positions: list[str] | None) -> bool:
-    expanded = expand_leader_positions(positions) or []
-    return bool(expanded) and all(p in FIELD_POSITIONS for p in expanded)
+    if not positions:
+        return False
+    return not any(_is_pitcher_pick(p) for p in positions) and any(
+        _is_hitter_pick(p) for p in positions
+    )
 
 
 def _hitter_subset(selected: list[str]) -> list[str]:
-    if LEGACY_HITTER in selected:
-        return list(FIELD_POSITIONS)
     field = [p for p in selected if p in FIELD_POSITIONS]
-    return field or list(FIELD_POSITIONS)
+    if field:
+        return field
+    if LEGACY_HITTER in selected:
+        return [LEGACY_HITTER]
+    return []
 
 
 def _pitcher_subset(selected: list[str]) -> list[str]:
-    if LEGACY_PITCHER in selected:
-        return list(PITCHER_POSITIONS)
     pitchers = [p for p in selected if p in PITCHER_POSITIONS]
-    return pitchers or list(PITCHER_POSITIONS)
+    if pitchers:
+        return pitchers
+    if LEGACY_PITCHER in selected:
+        return [LEGACY_PITCHER]
+    return []
 
 
 def _is_pitcher_pick(pos: str) -> bool:
@@ -173,7 +224,9 @@ def coerce_leader_selection(
     prev = list(previous or [])
 
     if not sel:
-        return list(FIELD_POSITIONS)
+        # Match NBA/NHL: clearing the multiselect stays empty (narrow from H/CF tags),
+        # not "all field positions" chips.
+        return default_leader_selection() if not prev else []
 
     added = set(sel) - set(prev)
     removed = set(prev) - set(sel)
@@ -209,7 +262,7 @@ def coerce_leader_selection(
     if is_hitter_only_selection(prev):
         return _hitter_subset(prev)
 
-    return list(FIELD_POSITIONS)
+    return sel
 
 
 # Compare page cohorts (hitters cross-position OK; not vs pitchers).

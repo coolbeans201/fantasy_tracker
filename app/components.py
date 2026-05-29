@@ -30,6 +30,7 @@ from src.db.connection import (
 
 from src.db.maintenance import (
     backfill_dst_points_allowed,
+    backfill_mlb_hitter_positions,
     backfill_mlb_player_names,
     backfill_mlb_regular_season_games,
     backfill_nba_positions,
@@ -189,6 +190,9 @@ def render_sidebar(
     ingested_asc = sorted(allowed)
     season_default = default_season if default_season in allowed else allowed[0]
 
+    if meta.season_label_hint:
+        st.sidebar.caption(meta.season_label_hint)
+
     if mode == SEASON_MODE_SINGLE:
         season_index = allowed.index(season_default)
         single_year = st.sidebar.selectbox(
@@ -269,14 +273,16 @@ def render_sidebar(
             value=False,
             help=f"Compare each row to all ingested {meta.label} seasons at the same position.",
         )
-    if sport == "nfl":
-        if st.sidebar.button(
-            title_case_ui("Repair database"),
-            help="Rebuild player index and refresh games played.",
-        ):
-            run_database_maintenance()
-            st.sidebar.success("Database maintenance finished.")
-            st.rerun()
+    if st.sidebar.button(
+        title_case_ui("Repair database"),
+        help=(
+            "Rebuild player index, refresh games played, and run sport backfills "
+            "(NFL opponents/DST, MLB regular-season stats & positions, NBA positions)."
+        ),
+    ):
+        run_database_maintenance()
+        st.sidebar.success("Database maintenance finished.")
+        st.rerun()
 
     detail_season = window_seasons[0] if window_seasons else None
     return {
@@ -314,6 +320,7 @@ def run_database_maintenance() -> None:
         backfill_weekly_opponents(conn)
         backfill_dst_points_allowed(conn)
         backfill_mlb_player_names(conn)
+        backfill_mlb_hitter_positions(conn)
         backfill_mlb_regular_season_games(conn)
         backfill_nba_positions(conn)
 

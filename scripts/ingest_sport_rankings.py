@@ -49,7 +49,10 @@ def main() -> None:
         "--delay",
         type=float,
         default=1.0,
-        help="Seconds between consensus/projection API calls (rate limiting)",
+        help=(
+            "Seconds between consensus/projection API calls (rate limiting). "
+            "NBA draft uses 5 position boards — use 2–3 if you see 429."
+        ),
     )
     p.add_argument(
         "--refresh-fp",
@@ -92,9 +95,10 @@ def main() -> None:
     except FantasyProsAPIError as exc:
         print(exc)
         if "429" in str(exc):
+            n_calls = 5 if args.sport == "nba" and not args.projections_only else "several"
             print(
-                "FantasyPros rate limit — wait 60s and retry with a slower pace, e.g. "
-                f"--delay 2 (current {args.delay})."
+                "FantasyPros rate limit — wait 60–90s, then retry with a slower pace, e.g.\n"
+                f"  --delay 2.5   (you used {args.delay}; NBA draft-only needs ~{n_calls} calls)"
             )
             if args.sport in ("mlb", "nhl") and not args.refresh_fp:
                 print(

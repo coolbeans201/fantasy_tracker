@@ -117,10 +117,9 @@ def _positions_from_team_rosters(season: str) -> dict[str, str]:
             raw_pos = row["POSITION"]
             if pd.isna(raw_pos) or not str(raw_pos).strip():
                 continue
-            # Roster labels like "G"/"F"/"GF" are too coarse and can incorrectly
-            # overwrite specific PlayerIndex labels (e.g., Curry PG -> SG).
+            # Skip coarse guard labels that normalize to None; F / F-C map to PF.
             raw_key = str(raw_pos).strip().upper().replace(" ", "")
-            if raw_key in {"G", "GUARD", "F", "FORWARD", "GF", "FG", "FC", "CF"}:
+            if raw_key in {"G", "GUARD", "GF", "FG", "CF"}:
                 continue
             norm = normalize_nba_position(raw_pos)
             if not norm:

@@ -5,6 +5,25 @@ from src.rankings.fantasypros_parse import (
 )
 
 
+def test_consensus_rankings_nba_pg_bucket():
+    payload = {
+        "players": [
+            {
+                "player_id": 1,
+                "player_name": "Test Guard",
+                "player_positions": "SG",
+                "rank_ave": "12",
+            }
+        ]
+    }
+    df = consensus_rankings_to_draft_ecr(
+        payload, sport_id="nba", season=2025, position_bucket="PG"
+    )
+    assert len(df) == 1
+    assert df.iloc[0]["position"] == "PG"
+    assert int(df.iloc[0]["ecr_rank"]) == 12
+
+
 def test_consensus_rankings_nba():
     payload = {
         "players": [

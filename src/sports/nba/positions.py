@@ -10,6 +10,27 @@ def leader_position_options() -> list[str]:
     return list(LEADER_POSITIONS)
 
 
+def default_leader_selection() -> list[str]:
+    """Season Leaders multiselect default: all fantasy positions."""
+    return list(LEADER_POSITIONS)
+
+
+def normalize_nba_ecr_position(
+    position: str | None,
+    *,
+    position_bucket: str | None = None,
+) -> str | None:
+    """
+    Position on draft ECR rows (must match season-stats PG–C buckets).
+
+    When FantasyPros is queried with ``position=PG``, the bucket label wins.
+    """
+    bucket = normalize_nba_position(position_bucket)
+    if bucket in LEADER_POSITIONS:
+        return bucket
+    return normalize_nba_position(position)
+
+
 def normalize_nba_position(pos: str | None) -> str | None:
     """Map NBA.com roster / PlayerIndex labels to fantasy buckets (PG–C)."""
     if not pos:
@@ -37,21 +58,32 @@ def normalize_nba_position(pos: str | None) -> str | None:
         return "PF"
     if "CENTER" in p and "FORWARD" not in p:
         return "C"
+    if p == "F":
+        return "PF"
+    if p == "FC":
+        return "PF"
+    if p == "FORWARD":
+        return "SF"
     if "-" in p:
         parts = [x for x in p.split("-") if x]
+        if parts in (["G", "F"], ["F", "G"]):
+            return "SG"
+        if parts in (["F", "C"], ["C", "F"]):
+            return "PF"
         if parts and parts[0] in LEADER_POSITIONS:
             return parts[0]
         if "PG" in parts:
             return "PG"
-        # Ambiguous hybrids (G-F, F-C, etc.) are left unresolved by design.
         return None
-    # Generic buckets are intentionally not coerced.
-    if p in ("G", "GUARD", "GF", "F", "FORWARD", "FC"):
+    # Coarse guard labels stay unresolved (roster ingest may skip these).
+    if p in ("G", "GUARD", "GF", "FORWARD"):
         return None
     return None
 
 
 def coerce_leader_selection(selected: list[str] | None, previous: list[str] | None = None) -> list[str]:
-    del previous
+    prev = list(previous or [])
     sel = [p for p in (selected or []) if p in LEADER_POSITIONS]
-    return sel or list(LEADER_POSITIONS)
+    if not sel:
+        return default_leader_selection() if not prev else []
+    return sel

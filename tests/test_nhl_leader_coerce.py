@@ -41,6 +41,12 @@ def test_expand_skater_shortcut():
     assert GOALIE_POSITION not in expanded
 
 
+def test_partial_skater_selection_preserved():
+    prev = ["C", "LW", "RW", "D", "F"]
+    out = coerce_leader_selection(["C", "D"], prev)
+    assert out == ["C", "D"]
+
+
 def test_expand_goalie_only():
     expanded = expand_leader_positions(["G"])
     assert expanded == ["G"]

@@ -383,7 +383,7 @@ def _migrate_mlb_player_season_stats(conn: duckdb.DuckDBPyConnection) -> None:
     if existing is not None and not existing.empty:
         existing.columns = [str(c).lower() for c in existing.columns]
         if "position" not in existing.columns:
-            existing["position"] = "H"
+            existing["position"] = "DH"
         if "team" not in existing.columns:
             existing["team"] = "UNK"
         if "plate_appearances" not in existing.columns:

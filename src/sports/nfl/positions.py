@@ -46,6 +46,11 @@ def leader_position_options() -> list[str]:
     return list(_LEADER_POSITIONS)
 
 
+def default_leader_selection() -> list[str]:
+    """Season Leaders multiselect default: offensive skill positions only."""
+    return list(OFFENSE_POSITIONS)
+
+
 def is_kicker_only_selection(positions: list[str] | None) -> bool:
     return positions == ["K"]
 
@@ -55,8 +60,7 @@ def is_dst_only_selection(positions: list[str] | None) -> bool:
 
 
 def _offense_subset(selected: list[str]) -> list[str]:
-    offense = [p for p in selected if p in OFFENSE_POSITIONS]
-    return offense or list(OFFENSE_POSITIONS)
+    return [p for p in selected if p in OFFENSE_POSITIONS]
 
 
 def coerce_leader_selection(
@@ -73,7 +77,7 @@ def coerce_leader_selection(
     prev = list(previous or [])
 
     if not sel:
-        return list(OFFENSE_POSITIONS)
+        return default_leader_selection() if not prev else []
 
     added = set(sel) - set(prev)
     removed = set(prev) - set(sel)

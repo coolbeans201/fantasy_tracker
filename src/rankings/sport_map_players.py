@@ -104,6 +104,7 @@ def _narrow_lookup_pool(
     lookup: pd.DataFrame,
     *,
     position: str,
+    sport_id: str = "",
 ) -> pd.DataFrame:
     """
     Optional position hint only.
@@ -113,10 +114,17 @@ def _narrow_lookup_pool(
     """
     pool = lookup
     pos = str(position or "").strip().upper()
+    sid = str(sport_id).strip().lower()
     if pos:
         pos_pool = pool[pool["position"].astype(str).str.upper() == pos]
         if not pos_pool.empty:
             pool = pos_pool
+        elif sid == "mlb" and pos in ("SP", "RP"):
+            pitcher_pool = pool[
+                pool["position"].astype(str).str.upper().isin(("SP", "RP"))
+            ]
+            if not pitcher_pool.empty:
+                pool = pitcher_pool
     return pool
 
 
@@ -130,12 +138,13 @@ def _fuzzy_match_player_id(
     *,
     position: str,
     fuzzy_threshold: int,
+    sport_id: str = "",
 ) -> str | None:
     query = _fold_name(name)
     if not query:
         return None
 
-    pool = _narrow_lookup_pool(lookup, position=position)
+    pool = _narrow_lookup_pool(lookup, position=position, sport_id=sport_id)
     name_pool = pool.drop_duplicates(subset=["player_name"])
     folded = name_pool["player_name"].astype(str).map(_fold_name).tolist()
     if not folded:
@@ -195,6 +204,7 @@ def attach_sport_player_ids(
             lookup,
             position=pos,
             fuzzy_threshold=fuzzy_threshold,
+            sport_id=sid,
         )
         if not pid and pos:
             pid = _fuzzy_match_player_id(
@@ -202,6 +212,7 @@ def attach_sport_player_ids(
                 lookup,
                 position="",
                 fuzzy_threshold=fuzzy_threshold,
+                sport_id=sid,
             )
         if not pid:
             continue

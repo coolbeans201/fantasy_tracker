@@ -312,8 +312,57 @@ def backfill_nba_positions(conn: duckdb.DuckDBPyConnection) -> None:
         conn.unregister("_nba_pos")
 
 
+def backfill_mlb_hitter_positions(conn: duckdb.DuckDBPyConnection) -> int:
+    """Map legacy hitter position H → DH (e.g. Ohtani hitting rows)."""
+    try:
+        rows = conn.execute(
+            """
+            SELECT COUNT(*) FROM mlb_player_season_stats
+            WHERE position = 'H'
+            """
+        ).fetchone()[0]
+    except duckdb.Error:
+        return 0
+    if not rows:
+        return 0
+    conn.execute(
+        """
+        UPDATE mlb_player_season_stats AS s
+        SET position = 'DH'
+        WHERE s.position = 'H'
+          AND NOT EXISTS (
+            SELECT 1
+            FROM mlb_player_season_stats AS t
+            WHERE t.player_id = s.player_id
+              AND t.season = s.season
+              AND t.team = s.team
+              AND t.position = 'DH'
+          )
+        """
+    )
+    remaining = conn.execute(
+        "SELECT COUNT(*) FROM mlb_player_season_stats WHERE position = 'H'"
+    ).fetchone()[0]
+    if remaining:
+        conn.execute(
+            """
+            DELETE FROM mlb_player_season_stats
+            WHERE position = 'H'
+              AND EXISTS (
+                SELECT 1
+                FROM mlb_player_season_stats AS t
+                WHERE t.player_id = mlb_player_season_stats.player_id
+                  AND t.season = mlb_player_season_stats.season
+                  AND t.team = mlb_player_season_stats.team
+                  AND t.position = 'DH'
+              )
+            """
+        )
+    return int(rows)
+
+
 def backfill_mlb_regular_season_games(conn: duckdb.DuckDBPyConnection) -> int:
-    """Correct inflated BRef ``games`` using MLB Stats API regular-season totals."""
+    """Replace BRef season totals with regular-season stats (MLB API + game logs)."""
     from src.sports.mlb.regular_season_games import backfill_mlb_regular_season_games as _run
 
     return int(_run(conn))
@@ -455,6 +504,7 @@ def backfill_dst_points_allowed(conn: duckdb.DuckDBPyConnection) -> None:
 
 __all__ = [
     "backfill_dst_points_allowed",
+    "backfill_mlb_hitter_positions",
     "backfill_mlb_player_names",
     "backfill_mlb_regular_season_games",
     "backfill_nba_positions",

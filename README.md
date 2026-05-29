@@ -11,7 +11,7 @@ Open-source fantasy analytics for **completed seasons** — season leaders, play
 - **Scoring:** Standard, Half-PPR, Full PPR for offense; **custom offense presets** (sidebar editor, no re-ingest); **ESPN default** for kickers and team **D/ST**
 - **D/ST:** Sacks, turnovers, TDs, **points allowed** (from game schedules), **yards allowed** (opponent pass + rush from nflverse team stats), ESPN PA/yards tier bonuses
 - **Season window (sidebar):** **Single season**, **season range**, or **pick seasons** — drives Leaders, Profile, and Compare
-- **Season Leaders:** QB/RB/WR/TE/K plus **DST**; sortable FP/G; **window leaders** when multiple years are selected; clickable names → Profile
+- **Season Leaders:** QB/RB/WR/TE/K plus **DST** (default offense only; **K**/**DST** exclusive views); sortable FP/G; **window leaders** when multiple years are selected; draft-rank surprise when rankings ingested; clickable names → Profile
 - **Player Profile:** **Career & window** (season table, peak/prime, career chart) and **season detail** (peer Z, consistency, weekly opponent, boom/bust weeks)
 - **Compare:** **All-time**, **single season** (same year for both), or **selected seasons** (sidebar window; cross-era OK)
 - **Variance:** Peer Z (season), optional peer Z (era), career Z; volume gates in [`src/analytics/thresholds.yaml`](src/analytics/thresholds.yaml)
@@ -21,18 +21,19 @@ Open-source fantasy analytics for **completed seasons** — season leaders, play
 
 - Per-sport hub: **Overview**, **Season Leaders**, **Player Profile**, **Compare** (under `app/pages/{mlb,nba,nhl}/`)
 - **Season window (sidebar):** Same **single / range / pick** modes as NFL for leaders, profile, and compare
-- **Season Leaders:** Position-aware stat columns; clickable **Player** → profile (`?entity=` / `?season=`); optional peer Z (season + era)
+- **Season Leaders:** Position-aware stat columns; **draft ECR vs finish rank** (winners/losers) when FantasyPros data is ingested; clickable **Player** → profile (`?entity=` / `?season=`); optional peer Z (season + era); **All stats** expander on the table
 - **Player Profile:** Career/window table, peak/prime highlights, season detail, game logs where ingested; **no internal `player_id` in tables**
 - **Compare:** **All-time**, **single season**, or **selected seasons**; **Skaters vs goalies** (NHL) and **Hitters vs pitchers** (MLB) cohort pickers — cross-cohort compare is blocked
-- **MLB:** Field positions (**H** shortcut or **C–DH**) and **SP/RP** (**P** shortcut); do **not** mix hitters and pitchers in one leaders filter. **Two-way** players (e.g. Ohtani): separate **hitting / pitching** season rows, profile game-log toggle, and role-specific stat columns. **Mid-season trades** = one row per team after re-ingest. **Career Z** omitted for **2020** (shortened season). BRef + FanGraphs ingest; BRef from **2008**. Season **games** use MLB Stats API regular-season totals (BRef `G` can include postseason).
-- **NBA:** Season totals from `LeagueDashPlayerStats`; positions from team rosters + `PlayerIndex` fallback by default (disk cache under `data/cache/nba/`, gitignored). Use `scripts/ingest_nba.py --index-only` for faster-but-less-accurate lookup, or `--refresh-positions` to refetch. Game logs: bulk league download by default (`ingest_nba_gamelogs.py` or `ingest_sport_gamelogs.py --sport nba`); avoid `--per-player-only` unless bulk fails
+- **MLB:** Season Leaders default to **all hitter positions** (C, 1B, 2B, … — not the legacy **H** chip). **H** / **P** shortcuts still select full hitter or pitcher groups; do **not** mix hitters and pitchers. **Two-way** players (e.g. Ohtani): separate **hitting / pitching** season rows, profile game-log toggle, and role-specific stat columns. **Mid-season trades** = one row per team after re-ingest. **Career Z** omitted for **2020** (shortened season). BRef + FanGraphs ingest; BRef from **2008**. Season counting stats use MLB Stats API **regular season** totals (`gameType=R`; BRef `G`/`HR`/etc. can include postseason).
+- **NBA:** Season totals from `LeagueDashPlayerStats`; leaders default to **all positions** (PG–C). Draft ECR ingest uses **positional** FantasyPros boards (not overall `ALL`). Positions from team rosters + `PlayerIndex` fallback (cache under `data/cache/nba/`). Use `scripts/ingest_nba.py --index-only` for faster lookup, or `--refresh-positions` to refetch. Game logs: bulk league download by default; avoid `--per-player-only` unless bulk fails
 - **MLB / NHL game logs:** One API call per player (large seasons). **Regular season only** (MLB `gameType=R`, NBA `Regular Season`, NHL `gameTypeId=2`). MLB: **hitting** + **pitching** rows; NHL: **skater** + **goalie** rows (`log_type`). Disk cache under `data/cache/gamelogs/`; `--refresh-cache` after schema changes. NHL: **3 workers**, **0.65s** delay; on `429` backs off. If rate-limited: `--workers 2 --delay 1.0`
-- **NHL:** Skater positions (**S** shortcut or **C, LW, RW, D, F**) and **G** for goalies; do **not** mix skaters and goalies. **Mid-season trades** = one row per team after re-ingest
+- **NHL:** Season Leaders default to **all skater positions** (C, LW, RW, D, F — not the legacy **S** chip). **S** / **G** shortcuts still work; do **not** mix skaters and goalies. Draft ECR uses positional FP boards when available (`/players` fallback). **Mid-season trades** = one row per team after re-ingest
 
 ### App
 
 - **Multi-sport home:** `st.navigation` + nested pages (Streamlit **1.36+**)
-- **Repair database** (sidebar): NFL games played, player index, display names, weekly **opponent**, D/ST **points/yards allowed**, MLB **accented player names** and **regular-season games** (fixes inflated BRef `G`), NBA **positions from team rosters**
+- **Repair database** (sidebar, all sports): NFL games played, player index, display names, weekly **opponent**, D/ST **points/yards allowed**, MLB **accented player names**, **H → DH** hitter positions, and **regular-season MLB stat overlay** (fixes BRef totals that include postseason), NBA **positions from team rosters**
+- **Season labels (sidebar):** **NFL/MLB** use **calendar year** (e.g. `2024` = that MLB/NFL season). **NBA/NHL** use **season end year** (e.g. `2025` = 2024–25). Caption shown under the season control on every page
 
 ## Data sources
 
@@ -46,7 +47,7 @@ All stats land in local **DuckDB** (`data/fantasy_tracker.duckdb`). Nothing is b
 | **NFL player index** | nflverse | `load_players` | Search / display names (maintenance backfill) | No |
 | **NFL draft + weekly ECR** | nflverse | `load_ff_rankings`, `load_ff_playerids` | Expert consensus ranks vs finish; FP→GSIS ID map | No |
 | **MLB season batting/pitching** | [pybaseball](https://github.com/jldbc/pybaseball) → [Baseball Reference](https://www.baseball-reference.com/) | `batting_stats_bref`, `pitching_stats_bref` | Season leaders, profiles, compare (bulk from **2008**) | No |
-| **MLB regular-season games** | [MLB Stats API](https://statsapi.mlb.com/) | `stats=season`, `gameType=R` | Corrects BRef `G` (often includes postseason); applied on ingest + **Repair database** | No |
+| **MLB regular-season stats** | [MLB Stats API](https://statsapi.mlb.com/) | `stats=season`, `gameType=R` | Corrects BRef season totals (often include postseason); ingest + **Repair database** | No |
 | **MLB season (fallback)** | pybaseball → [FanGraphs](https://www.fangraphs.com/) | `batting_stats`, `pitching_stats` | Used when BRef fails; bulk often **403** | No |
 | **MLB field positions** | BRef HTML + FanGraphs | BRef standard batting page; FG position table | CF, 1B, SP, RP, etc. (`position_lookup.py`) | No |
 | **MLB player IDs / positions** | [MLB Stats API](https://statsapi.mlb.com/) | `GET /api/v1/sports/1/players?season=` | Primary position by MLBAM id during ingest | No |
@@ -56,7 +57,7 @@ All stats land in local **DuckDB** (`data/fantasy_tracker.duckdb`). Nothing is b
 | **NBA game logs** | nba_api | `PlayerGameLogs` (bulk, monthly chunks); `PlayerGameLog` (fallback) | Profile per-game tables | No |
 | **NHL season stats** | [nhl-api-py](https://github.com/coreyjs/nhl-api-py) (`nhlpy`) → NHL API | Skater + goalie season endpoints (paginated) | Season leaders, profiles (from **2005**) | No |
 | **NHL game logs** | NHL API | `api-web.nhle.com/v1/player/{id}/game-log/{season}/2` | Skater + goalie per-game rows; **one request per player** | No |
-| **MLB/NBA/NHL draft ECR** | [FantasyPros Public API v2](https://api.fantasypros.com/public/v2/docs) | `/{SPORT}/{season}/consensus-rankings` | Draft rank vs finish (name-matched to stats) | **`FANTASYPROS_API_KEY`** |
+| **MLB/NBA/NHL draft ECR** | [FantasyPros Public API v2](https://api.fantasypros.com/public/v2/docs) | `/{SPORT}/{season}/consensus-rankings` (positional boards: NBA PG–C, MLB SP/RP/H, NHL C/LW/RW/D/G; overall ranks re-bucketed at merge if needed) | Draft rank vs **positional** finish (name-matched) | **`FANTASYPROS_API_KEY`** |
 | **MLB/NBA/NHL projections** | FantasyPros Public API | `/{sport}/{season}/projections` | Optional projection tables | **`FANTASYPROS_API_KEY`** |
 | **MLB/NBA FP positions** | FantasyPros Public API | `/{SPORT}/players` | Position overlay on ingested stats | **`FANTASYPROS_API_KEY`** |
 
@@ -95,7 +96,7 @@ Database: `data/fantasy_tracker.duckdb` (gitignored).
 
 For a **full multi-sport load** (season stats, game logs, rankings, FantasyPros), see **[Loading all data](#loading-all-data)** below. For the complete upstream source list, see **[Data sources](#data-sources)**.
 
-**Sidebar:** scoring preset (NFL offense: built-ins or saved **★ custom** presets), **Custom scoring presets** expander, **season view** (single / range / pick), min games, optional peer Z (era). **Repair database** runs maintenance backfills (see Features).
+**Sidebar:** scoring preset (NFL offense: built-ins or saved **★ custom** presets), **Custom scoring presets** expander, **season view** (single / range / pick) with a **season-year hint** (calendar vs end year), min games, optional peer Z (era). **Repair database** (every sport) runs maintenance backfills (see Features).
 
 **Custom scoring (v1):** NFL offense only (QB/RB/WR/TE). Points are computed at query time from weekly/season stat columns. Built-in presets still use precomputed `fantasy_points_*` from ingest. See [docs/CUSTOM_SCORING.md](docs/CUSTOM_SCORING.md).
 
@@ -164,7 +165,8 @@ Public API docs: [https://api.fantasypros.com/public/v2/docs](https://api.fantas
 **FantasyPros limitations (important):**
 
 - URL params like `season >= 2012` are valid, but **consensus rankings and projections often return the current player pool** for old years — ingest refuses to load when names do not match that season (`fp_season_mismatch`).
-- Use `--delay 1.0` (or higher) on `ingest_sport_rankings.py` if you hit **HTTP 429** rate limits.
+- Use `--delay 2` (or **`2.5`** for NBA draft ingest — five positional API calls) on `ingest_sport_rankings.py` if you hit **HTTP 429** rate limits; the script retries each position after a cooldown.
+- Draft consensus uses **position-specific** lists (not overall `ALL` for NBA/MLB/NHL), so beat-draft-rank compares like positions only.
 - FP `/players` responses are cached under `data/cache/fantasypros/` (gitignored). Use `--refresh-fp` to bypass cache after API cooldowns.
 
 ### Phase 1 — Season stats (required for Leaders / Profile / Compare)
@@ -251,9 +253,9 @@ Used for **draft ECR**, optional **projections**, and (via a separate script) **
 
 ```powershell
 # Draft ECR for recent seasons (repeat per sport/year you care about)
-.\.venv\Scripts\python.exe scripts\ingest_sport_rankings.py --sport nba --season 2025 --delay 2
+.\.venv\Scripts\python.exe scripts\ingest_sport_rankings.py --sport nba --season 2025 --draft-only --delay 2.5
 .\.venv\Scripts\python.exe scripts\ingest_sport_rankings.py --sport mlb --season 2025 --draft-only --delay 2
-.\.venv\Scripts\python.exe scripts\ingest_sport_rankings.py --sport nhl --season 2025
+.\.venv\Scripts\python.exe scripts\ingest_sport_rankings.py --sport nhl --season 2025 --draft-only --delay 2.5
 
 # Projections only (MLB: fewer calls with default position set)
 .\.venv\Scripts\python.exe scripts\ingest_sport_rankings.py --sport mlb --season 2025 --projections-only
@@ -405,12 +407,13 @@ Re-ingest after schema, position-filter, or D/ST/MLB ingest logic changes.
 
 ```
 app/                    Streamlit: Home.py + navigation.py + pages/{nfl,mlb,nba,nhl}/
+                        sport_leaders_page.py (MLB/NBA/NHL); nfl_leaders_page.py (NFL)
 src/sports/             Per-sport plugins (registry, positions, queries, scoring)
+src/analytics/          Z-scores, consistency, surprise vs ECR; sport_surprise (MLB/NBA/NHL)
 src/team_dst_columns.py NFL D/ST mapping, PA/yards from schedules + team stats
 src/text_encoding.py    Unicode repair for scraped names (MLB, etc.)
 src/season_selection.py Sidebar season window helpers
 src/scoring/            Presets, custom store, query-time FP SQL
-src/analytics/          Z-scores, consistency, surprise vs ECR
 src/db/                 DuckDB schema, queries, maintenance backfills
 scripts/                Ingest and utilities
 docs/                   Roadmaps and design notes
@@ -429,21 +432,24 @@ Run `.\.venv\Scripts\python.exe scripts\check_env.py` first.
 | `python` not found / Store opens | Install 64-bit Python; use `py -3.12`; disable App execution aliases |
 | pandas build / Meson errors | **32-bit Python** — recreate venv (64-bit) and reinstall requirements |
 | `Activate.ps1` blocked | Skip activation; use `.\.venv\Scripts\python.exe` for all commands |
-| Empty Season Leaders | Lower min games; re-ingest; **Repair database** |
+| Empty Season Leaders | Lower min games; re-ingest; **Repair database**; check position filter (clearing all tags shows “select at least one position”) |
+| Absurd **draft ECR** / rank delta (e.g. 147) on MLB/NBA | Re-run `ingest_sport_rankings.py` with positional boards (`--draft-only --delay 2+`); old overall `ALL` ranks are re-bucketed at display time but re-ingest is best |
+| FantasyPros **429** on NBA draft | Wait 60–90s; retry with `--draft-only --delay 2.5` (five position calls) |
 | D/ST **points/yards allowed** all zero | **Repair database** or re-ingest NFL; PA needs schedules, yards need team stats |
 | MLB names like `Jos\xc3\xa9` | **Repair database** or re-ingest MLB (`src/text_encoding.py` fixes on read + backfill) |
-| MLB positions all **H** / **P** | Re-ingest MLB; new ingests store **CF, 1B, SP, RP**, etc. (legacy H/P still filter in UI) |
+| MLB positions all **H** / **P** in **stored stats** | Re-ingest MLB; new ingests store **CF, 1B, SP, RP**, etc. Leaders UI defaults to explicit field positions; **H**/**P** remain shortcuts |
 | Missing **Opponent** (NFL weekly) | **Repair database** or re-ingest that season |
 | Player not in search | Type 2+ letters; **Repair database** or `scripts/rebuild_players.py` |
 | MLB BRef bulk skips seasons | Retry with `--season YEAR --source bref`; use `--fail-fast` to stop on first error |
-| MLB hitter **games** look too high (e.g. 175) | BRef `G` can include postseason; re-ingest or **Repair database** (`backfill_mlb_regular_season_games`) for MLB Stats API regular-season totals |
+| MLB **HR/games** look too high (postseason included) | BRef totals can include playoffs; re-ingest MLB or **Repair database** for MLB Stats API regular-season overlay |
 | MLB profile game log shows batting cols for a pitcher | Re-ingest game logs with `--refresh-cache`; pitching view uses wins / K / IP columns |
 | NBA everyone shows **SF** | **Repair database** or re-ingest; positions come from **team rosters** (PlayerIndex join uses normalized player IDs) |
 | NHL partial seasons | nhlpy caps page size; re-ingest affected years with current `ingest_nhl.py` |
-| NHL positions all **S** / **G** | Re-ingest NHL; new ingests store **C, LW, RW, D** and **G** (legacy S still filters as skaters) |
+| NHL positions all **S** / **G** in **stored stats** | Re-ingest NHL; new ingests store **C, LW, RW, D** and **G**. Leaders UI defaults to skater positions; **S**/**G** remain shortcuts |
 | MLB/NHL leader shows wrong team or one row per player | Re-ingest that sport — storage is per **team stint**; combined `2TM`/`TOT` rows are dropped when splits exist |
-| Mixed hitter + pitcher on MLB leaders | Use **H** or **P** only; UI coerces away from mixing (like NFL K/DST) |
-| Mixed skater + goalie on NHL leaders | Use **S** or **G** only; same coercion rules |
+| Mixed hitter + pitcher on MLB leaders | Pick hitters **or** pitchers only; UI coerces away from mixing (like NFL K/DST) |
+| Mixed skater + goalie on NHL leaders | Pick skaters **or** goalies only; same coercion rules |
+| Cleared position filter refills everything | Fixed: removing all tags leaves filter empty (narrow with **×** on chips; MLB/NHL/NFL/NBA) |
 | NHL game logs slow / HTTP 429 | Use `--workers 2 --delay 1.0`; cache under `data/cache/gamelogs/nhl/` lets you resume |
 | FantasyPros `429` / empty MLB rankings | Wait for cooldown; use `--delay 2`; cached `/players` under `data/cache/fantasypros/` |
 | `fp_season_mismatch` on old NBA/MLB seasons | FP often returns current-era players for old URLs — use recent seasons only |

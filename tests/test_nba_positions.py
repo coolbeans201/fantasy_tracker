@@ -7,7 +7,12 @@ import pytest
 
 from src.sports.nba import player_positions
 from src.sports.nba.player_positions import fetch_season_positions, normalize_player_id
-from src.sports.nba.positions import normalize_nba_position
+from src.sports.nba.positions import (
+    LEADER_POSITIONS,
+    coerce_leader_selection,
+    default_leader_selection,
+    normalize_nba_position,
+)
 
 
 def test_normalize_player_id_strips_float_suffix():
@@ -16,10 +21,20 @@ def test_normalize_player_id_strips_float_suffix():
     assert normalize_player_id("1630162") == "1630162"
 
 
+def test_default_leader_selection_all_positions():
+    assert default_leader_selection() == LEADER_POSITIONS
+
+
+def test_coerce_leader_selection_empty_returns_all():
+    assert coerce_leader_selection([]) == LEADER_POSITIONS
+
+
 def test_normalize_nba_roster_labels():
     assert normalize_nba_position("PG") == "PG"
     assert normalize_nba_position("G-F") == "SG"
     assert normalize_nba_position("F-C") == "PF"
+    assert normalize_nba_position("F") == "PF"
+    assert normalize_nba_position("FC") == "PF"
     assert normalize_nba_position("C") == "C"
     assert normalize_nba_position("Forward") == "SF"
 

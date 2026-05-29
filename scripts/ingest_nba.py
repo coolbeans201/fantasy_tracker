@@ -21,6 +21,10 @@ from src.sports.nba.player_positions import (  # noqa: E402
 )
 from src.sports.nba.positions import normalize_nba_position  # noqa: E402
 from src.sports.nba.scoring import compute_fp  # noqa: E402
+from src.sports.nba.season_stats import (  # noqa: E402
+    LEAGUE_DASH_PER_MODE,
+    counting_stats_from_league_dash,
+)
 
 
 def _season_str(end_year: int) -> str:
@@ -43,7 +47,7 @@ def fetch_season(
     resp = leaguedashplayerstats.LeagueDashPlayerStats(
         season=season,
         season_type_all_star="Regular Season",
-        per_mode_detailed="PerGame",
+        per_mode_detailed=LEAGUE_DASH_PER_MODE,
     )
     time.sleep(0.6)
     raw = resp.get_data_frames()[0]
@@ -78,15 +82,9 @@ def fetch_season(
     # Keep unknown positions blank/null rather than guessing.
     out.loc[out["position"].isna(), "position"] = None
     out["team"] = _col(raw, "TEAM_ABBREVIATION").fillna("UNK").astype(str)
-    games = pd.to_numeric(_col(raw, "GP"), errors="coerce").fillna(0).astype(int)
-    out["games"] = games
-    out["points"] = pd.to_numeric(_col(raw, "PTS"), errors="coerce").fillna(0) * games
-    out["rebounds"] = pd.to_numeric(_col(raw, "REB"), errors="coerce").fillna(0) * games
-    out["assists"] = pd.to_numeric(_col(raw, "AST"), errors="coerce").fillna(0) * games
-    out["steals"] = pd.to_numeric(_col(raw, "STL"), errors="coerce").fillna(0) * games
-    out["blocks"] = pd.to_numeric(_col(raw, "BLK"), errors="coerce").fillna(0) * games
-    out["turnovers"] = pd.to_numeric(_col(raw, "TOV"), errors="coerce").fillna(0) * games
-    out["three_pointers"] = pd.to_numeric(_col(raw, "FG3M"), errors="coerce").fillna(0) * games
+    stats = counting_stats_from_league_dash(raw)
+    for col in stats.columns:
+        out[col] = stats[col]
     out["fantasy_points_espn"] = compute_fp(out)
     return out
 
