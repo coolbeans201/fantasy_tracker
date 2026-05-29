@@ -13,15 +13,16 @@ from app.components import get_db, render_sidebar
 from app.sport_context import init_sport_page
 from app.sport_profile_entry import player_id_from_profile_link
 from app.sport_season_scope import compare_season_scope_caption, sync_compare_sidebar_seasons
+from src.analytics.metrics import add_fp_per_game
 from src.analytics.peer_z_sport import peer_df_for_entity_season_sport, peer_z_score_sport
-from src.analytics.sport_variance import add_volume_flags_sport
+from src.analytics.sport_variance import add_volume_flags_sport, compute_career_z_sport
 from src.db.connection import db_exists
 from src.season_selection import format_season_span
 from src.sports.compare_cohort import (
     compare_cohorts_compatible,
-    filter_compare_season_rows,
     mlb_compare_cohort_hint_from_label,
     nhl_compare_cohort_hint_from_label,
+    prepare_compare_season_rows,
 )
 from src.sports.display_stats import display_stats_for_leader_selection
 from src.sports.player_career import compare_player_seasons
@@ -123,6 +124,21 @@ def render_sport_compare_page(
     st.title(title_case_ui("Compare Players"))
     if caption:
         st.caption(caption)
+
+    if sport_id == "mlb":
+        st.radio(
+            title_case_ui("Cohort"),
+            ["Hitters", "Pitchers"],
+            horizontal=True,
+            key="mlb_compare_cohort",
+        )
+    elif sport_id == "nhl":
+        st.radio(
+            title_case_ui("Cohort"),
+            ["Skaters", "Goalies"],
+            horizontal=True,
+            key="nhl_compare_cohort",
+        )
 
     if not db_exists() or not controls["seasons"]:
         st.info(f"Ingest {label} data first.")
@@ -263,8 +279,12 @@ def render_sport_compare_page(
         season=pick_season,
         seasons=pick_window,
     )
-    df_a = filter_compare_season_rows(df_a, sport_id, cohort_hint=cohort_hint)
-    df_b = filter_compare_season_rows(df_b, sport_id, cohort_hint=cohort_hint)
+    df_a = prepare_compare_season_rows(df_a, sport_id, cohort_hint=cohort_hint)
+    df_b = prepare_compare_season_rows(df_b, sport_id, cohort_hint=cohort_hint)
+    if not df_a.empty:
+        df_a = compute_career_z_sport(add_fp_per_game(df_a), sport_id)
+    if not df_b.empty:
+        df_b = compute_career_z_sport(add_fp_per_game(df_b), sport_id)
 
     if df_a.empty and df_b.empty:
         st.warning("No rows for this compare mode.")

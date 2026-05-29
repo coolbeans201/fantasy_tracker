@@ -2,6 +2,8 @@
 
 from __future__ import annotations
 
+from collections.abc import Callable
+
 import duckdb
 
 
@@ -175,9 +177,9 @@ def filter_compare_season_rows(
         )
 
         if cohort_hint == COMPARE_GROUP_PITCHER:
-            return df[df["position"].map(is_pitcher_position)]
+            return df[df["position"].map(is_pitcher_position)].copy()
         if cohort_hint == COMPARE_GROUP_HITTER:
-            return df[~df["position"].map(is_pitcher_position)]
+            return df[~df["position"].map(is_pitcher_position)].copy()
     elif sid == "nhl":
         from src.sports.nhl.positions import (
             COMPARE_GROUP_GOALIE,
@@ -186,7 +188,106 @@ def filter_compare_season_rows(
         )
 
         if cohort_hint == COMPARE_GROUP_GOALIE:
-            return df[df["position"].map(is_goalie_position)]
+            return df[df["position"].map(is_goalie_position)].copy()
         if cohort_hint == COMPARE_GROUP_SKATER:
-            return df[~df["position"].map(is_goalie_position)]
+            return df[~df["position"].map(is_goalie_position)].copy()
     return df
+
+
+_MLB_COMPARE_SUM_COLS = (
+    "games",
+    "plate_appearances",
+    "runs",
+    "home_runs",
+    "rbi",
+    "stolen_bases",
+    "walks",
+    "strikeouts_bat",
+    "wins",
+    "strikeouts_pitch",
+    "saves",
+    "innings_pitched",
+)
+
+
+def _combine_compare_teams(series) -> str:
+    import pandas as pd
+
+    teams = sorted(
+        {
+            str(t).strip()
+            for t in series.dropna()
+            if str(t).strip() and str(t).strip().lower() not in {"nan", "none"}
+        }
+    )
+    if not teams:
+        return ""
+    if len(teams) == 1:
+        return teams[0]
+    return "2TM"
+
+
+def aggregate_mlb_compare_by_season(df, cohort_hint: str | None):
+    """One row per season after cohort filter (sums multi-team hitter stints)."""
+    import pandas as pd
+
+    from src.sports.mlb.positions import (
+        COMPARE_GROUP_HITTER,
+        COMPARE_GROUP_PITCHER,
+        is_pitcher_position,
+    )
+    from src.sports.mlb.scoring import compute_hitter_fp, compute_pitcher_fp
+
+    if (
+        df is None
+        or (isinstance(df, pd.DataFrame) and df.empty)
+        or cohort_hint not in (COMPARE_GROUP_HITTER, COMPARE_GROUP_PITCHER)
+        or "season" not in df.columns
+    ):
+        return df
+    if df.groupby("season").size().max() <= 1:
+        return df
+
+    sum_cols = [c for c in _MLB_COMPARE_SUM_COLS if c in df.columns]
+    agg: dict[str, str | Callable] = {c: "sum" for c in sum_cols}
+    for col in ("player_id", "player_name"):
+        if col in df.columns:
+            agg[col] = "first"
+    if "team" in df.columns:
+        agg["team"] = _combine_compare_teams
+
+    grouped = df.groupby("season", as_index=False).agg(agg)
+
+    def _pick_position(g: pd.DataFrame) -> str:
+        if cohort_hint == COMPARE_GROUP_PITCHER:
+            pitchers = [p for p in g["position"] if is_pitcher_position(p)]
+            return str(pitchers[0] if pitchers else g["position"].iloc[0])
+        hitters = [p for p in g["position"] if not is_pitcher_position(p)]
+        return str(hitters[0] if hitters else g["position"].iloc[0])
+
+    grouped["position"] = [
+        _pick_position(df[df["season"] == int(season)])
+        for season in grouped["season"]
+    ]
+
+    if cohort_hint == COMPARE_GROUP_PITCHER:
+        fp = compute_pitcher_fp(grouped)
+    else:
+        fp = compute_hitter_fp(grouped)
+    grouped["fantasy_points"] = fp
+    if "fantasy_points_espn" in grouped.columns:
+        grouped["fantasy_points_espn"] = fp
+    return grouped.sort_values("season").reset_index(drop=True)
+
+
+def prepare_compare_season_rows(
+    df,
+    sport_id: str,
+    *,
+    cohort_hint: str | None,
+):
+    """Filter to cohort, then collapse duplicate seasons (MLB two-way / multi-team)."""
+    out = filter_compare_season_rows(df, sport_id, cohort_hint=cohort_hint)
+    if str(sport_id).strip().lower() == "mlb":
+        out = aggregate_mlb_compare_by_season(out, cohort_hint)
+    return out

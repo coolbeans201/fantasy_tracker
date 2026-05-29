@@ -1,0 +1,19 @@
+season=2012
+lookup_players=478
+consensus_sample:
+keys=['filename', 'player_cbs_id', 'player_id', 'player_image_url', 'player_name', 'player_nbacom_id', 'player_page_url', 'player_position_id', 'player_positions', 'player_short_name', 'player_square_image_url', 'player_team_id', 'player_yahoo_id', 'pos_rank', 'rank_ave', 'rank_ecr', 'rank_max', 'rank_min', 'rank_std']
+  fp_name='Nikola Jokic'
+  raw_name='Nikola Jokic' name=None
+keys=['filename', 'player_cbs_id', 'player_id', 'player_image_url', 'player_name', 'player_nbacom_id', 'player_page_url', 'player_position_id', 'player_positions', 'player_short_name', 'player_square_image_url', 'player_team_id', 'player_yahoo_id', 'pos_rank', 'rank_ave', 'rank_ecr', 'rank_max', 'rank_min', 'rank_std']
+  fp_name='Victor Wembanyama'
+  raw_name='Victor Wembanyama' name=None
+keys=['filename', 'player_cbs_id', 'player_id', 'player_image_url', 'player_name', 'player_nbacom_id', 'player_page_url', 'player_position_id', 'player_positions', 'player_short_name', 'player_square_image_url', 'player_team_id', 'player_yahoo_id', 'pos_rank', 'rank_ave', 'rank_ecr', 'rank_max', 'rank_min', 'rank_std']
+  fp_name='Shai Gilgeous-Alexander'
+  raw_name='Shai Gilgeous-Alexander' name=None
+consensus_parsed=377
+consensus_null_names=0
+consensus_name_sample=['Nikola Jokic', 'Victor Wembanyama', 'Shai Gilgeous-Alexander', 'Luka Doncic', 'Giannis Antetokounmpo', 'Anthony Edwards', 'Cade Cunningham', 'Anthony Davis']
+consensus_error=TypeError("_fuzzy_match_player_id() got an unexpected keyword argument 'sport_id'")
+projection_sample:
+
+proj_parsed=271 null_names=0

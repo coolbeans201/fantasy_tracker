@@ -15,7 +15,7 @@ from src.sports.nhl.gamelogs import ingest_season_gamelogs  # noqa: E402
 
 
 def main() -> None:
-    p = argparse.ArgumentParser(description="Ingest NHL skater game logs")
+    p = argparse.ArgumentParser(description="Ingest NHL skater and goalie game logs")
     p.add_argument(
         "--season",
         type=int,
@@ -31,8 +31,24 @@ def main() -> None:
     p.add_argument(
         "--delay",
         type=float,
-        default=0.25,
-        help="Delay between player requests in seconds.",
+        default=0.65,
+        help="Minimum seconds between NHL API requests (global, all workers).",
+    )
+    p.add_argument(
+        "--workers",
+        type=int,
+        default=3,
+        help="Parallel fetch workers (keep low; NHL rate-limits aggressively).",
+    )
+    p.add_argument(
+        "--no-cache",
+        action="store_true",
+        help="Skip data/cache/gamelogs/nhl/{season}/ resume files.",
+    )
+    p.add_argument(
+        "--refresh-cache",
+        action="store_true",
+        help="Refetch all players even if cache exists.",
     )
     args = p.parse_args()
 
@@ -44,6 +60,9 @@ def main() -> None:
             args.season,
             limit_players=args.limit_players,
             delay_sec=max(0.0, float(args.delay)),
+            workers=max(1, int(args.workers)),
+            use_cache=not args.no_cache,
+            refresh_cache=args.refresh_cache,
         )
         print(
             f"Ingested NHL game logs for {args.season}: {summary['rows']} rows "

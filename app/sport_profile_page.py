@@ -12,6 +12,7 @@ from app.career_table import (
     style_career_breakdown,
 )
 from app.charts import game_log_fantasy_points_chart, season_fantasy_points_chart
+from app.game_log_table import add_game_highlight_column, style_game_log_table
 from app.components import get_db, query_param_season, render_sidebar
 from app.sport_context import init_sport_page
 from app.sport_profile_display import (
@@ -279,21 +280,39 @@ def _render_season_detail_section(
 
     if multi_stint:
         st.markdown(section_h3(f"Team / role splits ({detail_season})"))
-        split_cols = [
-            c
-            for c in ["team", "position", "games", "fantasy_points", "fp_per_game"]
-            if c in detail_sorted.columns
-        ]
-        pos = primary.get("position")
-        stat_cols = display_stats_for_sport(sport_id, str(pos) if pos is not None else None)
-        split_cols += [c for c in stat_cols if c in detail_sorted.columns and c not in split_cols]
-        st.dataframe(
-            format_profile_table(detail_sorted, columns=split_cols),
-            use_container_width=True,
-            hide_index=True,
-        )
+        if sport_id in ("mlb", "nhl"):
+            from app.sport_profile_display import render_grouped_career_stats
 
-    from src.sports.game_logs import load_player_game_log
+            render_grouped_career_stats(sport_id, detail_sorted, container=st)
+            if sport_id == "mlb" and len(detail_sorted) > 1:
+                st.caption(
+                    "Season FP and FP per game above combine every role row for this year."
+                )
+        else:
+            split_cols = [
+                c
+                for c in ["team", "position", "games", "fantasy_points", "fp_per_game"]
+                if c in detail_sorted.columns
+            ]
+            pos = primary.get("position")
+            stat_cols = display_stats_for_sport(
+                sport_id, str(pos) if pos is not None else None
+            )
+            split_cols += [
+                c for c in stat_cols if c in detail_sorted.columns and c not in split_cols
+            ]
+            st.dataframe(
+                format_profile_table(detail_sorted, columns=split_cols),
+                use_container_width=True,
+                hide_index=True,
+            )
+
+    from src.analytics.game_consistency import (
+        consistency_from_games,
+        format_game_boom_bust_caption,
+        player_game_fp_percentiles,
+    )
+    from src.sports.game_logs import filter_game_log_for_profile, load_player_game_log
 
     games = load_player_game_log(conn, sport_id, player_id, detail_season)
     if games is None:
@@ -302,28 +321,190 @@ def _render_season_detail_section(
         st.info(f"No {game_unit} log rows ingested for this season.")
         return
 
+    profile_pos = primary.get("position")
+    gamelog_log_type: str | None = None
+    gamelog_display_pos = profile_pos
+
+    if sport_id == "mlb":
+        from src.sports.game_logs import (
+            MLB_LOG_HITTING,
+            MLB_LOG_PITCHING,
+            enrich_mlb_game_log_rows,
+            mlb_default_game_log_type,
+            mlb_game_log_types_present,
+            mlb_position_for_game_log_type,
+        )
+
+        from src.sports.game_logs import mlb_two_way_career, mlb_two_way_season
+
+        games = enrich_mlb_game_log_rows(games)
+        log_types = mlb_game_log_types_present(games)
+        two_way = mlb_two_way_season(conn, player_id, detail_season)
+        career_two_way = mlb_two_way_career(conn, player_id)
+        default_type = mlb_default_game_log_type(
+            detail_sorted, games, primary_position=profile_pos
+        )
+        options = [MLB_LOG_HITTING, MLB_LOG_PITCHING]
+        labels = {MLB_LOG_HITTING: "Hitting", MLB_LOG_PITCHING: "Pitching"}
+        show_role_picker = career_two_way or two_way or len(log_types) > 1
+
+        if show_role_picker:
+            gamelog_log_type = st.radio(
+                title_case_ui("Game log view"),
+                options,
+                format_func=lambda v: labels.get(v, str(v).title()),
+                horizontal=True,
+                index=options.index(default_type) if default_type in options else 0,
+                key=f"mlb_profile_gamelog_{player_id}_{detail_season}",
+                help=(
+                    "Two-way players store separate hitting and pitching rows per game. "
+                    "Pick which role to show (not one combined row)."
+                ),
+            )
+            from src.sports.game_logs import MLB_MAX_REGULAR_GAMES, count_distinct_games
+
+            role_games = filter_game_log_for_profile(
+                games,
+                sport_id,
+                profile_pos,
+                log_type=gamelog_log_type,
+            )
+            chosen_count = count_distinct_games(role_games)
+            if chosen_count == 0:
+                st.warning(
+                    f"No **{labels[gamelog_log_type]}** rows in the database for {detail_season}. "
+                    "Re-ingest game logs with: "
+                    f"`scripts/ingest_mlb_gamelogs.py --season {detail_season} --refresh-cache`"
+                )
+            else:
+                reg_note = ""
+                if chosen_count > MLB_MAX_REGULAR_GAMES:
+                    reg_note = (
+                        f" ({chosen_count} rows looks high — re-ingest with regular-season "
+                        f"filter: `ingest_mlb_gamelogs.py --season {detail_season} --refresh-cache`)"
+                    )
+                st.caption(
+                    f"Showing **{labels[gamelog_log_type]}** — **{chosen_count}** regular-season "
+                    f"{game_unit}s (one row per {game_unit}, not merged with the other role)."
+                    f"{reg_note}"
+                )
+        elif log_types:
+            gamelog_log_type = default_type
+            st.caption(
+                f"Game log shows **{labels.get(gamelog_log_type, gamelog_log_type.title())}** "
+                f"for this season."
+            )
+        elif profile_pos:
+            gamelog_log_type = default_type
+            role = "Pitching" if gamelog_log_type == MLB_LOG_PITCHING else "Hitting"
+            st.caption(
+                f"Game log uses **{role}** (primary season role: {profile_pos})."
+            )
+
+        if gamelog_log_type:
+            gamelog_display_pos = mlb_position_for_game_log_type(gamelog_log_type)
+
+    games = filter_game_log_for_profile(
+        games,
+        sport_id,
+        profile_pos,
+        log_type=gamelog_log_type,
+    )
+    if games.empty:
+        st.info(f"No {game_unit} log rows for this role in {detail_season}.")
+        return
+
+    p25, p75 = player_game_fp_percentiles(games)
+    game_metrics = consistency_from_games(games, p25=p25, p75=p75)
+
     if "fantasy_points" in games.columns:
         fp = games["fantasy_points"]
-        m1, m2, m3 = st.columns(3)
+        m1, m2, m3, m4, m5 = st.columns(5)
         m1.metric(title_case_ui("Best game"), f"{fp.max():.1f} FP")
         m2.metric(title_case_ui("Worst game"), f"{fp.min():.1f} FP")
         season_avg = fp.mean()
         above = float((fp > season_avg).mean()) if len(fp) else 0.0
         m3.metric(title_case_ui("Games above avg"), f"{above * 100:.0f}%")
-        st.caption(
-            f"Per-{game_unit} highs/lows for this player (no NFL weekly boom/bust tiers)."
+        boom = game_metrics.get("boom_rate")
+        bust = game_metrics.get("bust_rate")
+        m4.metric(
+            title_case_ui("Strong game rate"),
+            f"{boom * 100:.0f}%" if boom is not None else "—",
         )
+        m5.metric(
+            title_case_ui("Weak game rate"),
+            f"{bust * 100:.0f}%" if bust is not None else "—",
+        )
+        st.caption(format_game_boom_bust_caption(p25, p75, game_unit=game_unit))
 
     unit_label = game_unit.capitalize()
     st.markdown(section_h3(f"Fantasy points by {game_unit}"))
     st.caption("Dashed line = season average for this player.")
-    game_log_fantasy_points_chart(games)
+    game_log_fantasy_points_chart(games, p25=p25, p75=p75)
 
     st.markdown(section_h3(f"{unit_label} log"))
     if "opponent" in games.columns and games["opponent"].isna().all():
         st.caption("Opponent not loaded for this season yet — re-ingest game logs if needed.")
-    log_show = format_game_log_table(games)
-    st.dataframe(log_show, use_container_width=True, hide_index=True)
+    if sport_id == "mlb" and gamelog_log_type == MLB_LOG_PITCHING:
+        if not any(
+            c in games.columns and games[c].notna().any()
+            for c in ("wins", "strikeouts_pitch", "innings_pitched")
+        ):
+            st.caption(
+                "Pitching box-score columns missing — re-run "
+                "`scripts/ingest_mlb_gamelogs.py --season "
+                f"{detail_season} --refresh-cache` after updating."
+            )
+    elif sport_id == "mlb" and gamelog_log_type == MLB_LOG_HITTING:
+        if not any(
+            c in games.columns and games[c].notna().any()
+            for c in ("runs", "home_runs", "rbi")
+        ):
+            st.caption(
+                "Hitting box-score columns missing — re-run "
+                "`scripts/ingest_mlb_gamelogs.py --season "
+                f"{detail_season} --refresh-cache` after updating."
+            )
+    elif sport_id == "mlb" and not any(
+        c in games.columns and games[c].notna().any()
+        for c in ("runs", "wins", "innings_pitched")
+    ):
+        st.caption(
+            "Box-score columns missing — re-run "
+            "`scripts/ingest_mlb_gamelogs.py --season "
+            f"{detail_season} --refresh-cache` after updating."
+        )
+    if sport_id == "nhl":
+        from src.sports.nhl.positions import is_goalie_position
+
+        if is_goalie_position(profile_pos):
+            if not any(
+                c in games.columns and games[c].notna().any()
+                for c in ("saves", "goals_against", "wins")
+            ):
+                st.caption(
+                    "Goalie box-score columns missing — re-run "
+                    f"`scripts/ingest_nhl_gamelogs.py --season {detail_season} "
+                    "--refresh-cache`."
+                )
+        elif not any(
+            c in games.columns and games[c].notna().any() for c in ("goals", "assists", "shots")
+        ):
+            st.caption(
+                "Skater box-score columns missing — re-run "
+                f"`scripts/ingest_nhl_gamelogs.py --season {detail_season} --refresh-cache`."
+            )
+    log_show = format_game_log_table(
+        games,
+        sport_id,
+        str(gamelog_display_pos if sport_id == "mlb" else profile_pos)
+        if (gamelog_display_pos or profile_pos) is not None
+        else None,
+        log_type=gamelog_log_type if sport_id in ("mlb", "nhl") else None,
+    )
+    log_show = add_game_highlight_column(log_show, games, p25=p25, p75=p75)
+    styled_log = style_game_log_table(log_show, games, p25=p25, p75=p75)
+    st.dataframe(styled_log, use_container_width=True, hide_index=True)
     st.download_button(
         title_case_ui(f"Download {game_unit} log CSV"),
         log_show.to_csv(index=False),

@@ -11,6 +11,7 @@ import pandas as pd
 
 from src.sports.game_logs import order_game_log_by_date
 from src.sports.nba.scoring import compute_fp
+from src.sports.season_type import filter_nba_gamelog_frame
 
 NBA_GAMELOG_RETRIES = 6
 NBA_GAMELOG_BASE_DELAY_SEC = 1.5
@@ -104,7 +105,7 @@ def _fetch_playergamelogs_raw(
     for attempt in range(1, NBA_GAMELOG_RETRIES + 1):
         try:
             resp = playergamelogs.PlayerGameLogs(**kwargs)
-            return resp.get_data_frames()[0]
+            return filter_nba_gamelog_frame(resp.get_data_frames()[0])
         except Exception as exc:
             last = exc
             if attempt >= NBA_GAMELOG_RETRIES:
@@ -190,7 +191,7 @@ def fetch_player_gamelog(
         if last is not None:
             raise last
         return pd.DataFrame()
-    raw = resp.get_data_frames()[0]
+    raw = filter_nba_gamelog_frame(resp.get_data_frames()[0])
     if raw.empty:
         return pd.DataFrame()
     out = pd.DataFrame(index=raw.index.copy())

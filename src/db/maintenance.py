@@ -312,6 +312,13 @@ def backfill_nba_positions(conn: duckdb.DuckDBPyConnection) -> None:
         conn.unregister("_nba_pos")
 
 
+def backfill_mlb_regular_season_games(conn: duckdb.DuckDBPyConnection) -> int:
+    """Correct inflated BRef ``games`` using MLB Stats API regular-season totals."""
+    from src.sports.mlb.regular_season_games import backfill_mlb_regular_season_games as _run
+
+    return int(_run(conn))
+
+
 def backfill_mlb_player_names(conn: duckdb.DuckDBPyConnection) -> None:
     """Fix MLB names stored with literal \\x UTF-8 escapes or Latin-1 mojibake."""
     try:
@@ -449,6 +456,7 @@ def backfill_dst_points_allowed(conn: duckdb.DuckDBPyConnection) -> None:
 __all__ = [
     "backfill_dst_points_allowed",
     "backfill_mlb_player_names",
+    "backfill_mlb_regular_season_games",
     "backfill_nba_positions",
     "backfill_weekly_opponents",
     "players_table_needs_rebuild",

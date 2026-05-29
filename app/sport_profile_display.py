@@ -5,7 +5,7 @@ from __future__ import annotations
 import pandas as pd
 import streamlit as st
 
-from src.sports.display_stats import display_stats_for_sport
+from src.sports.display_stats import display_stats_for_sport, game_log_stat_columns
 from src.stats_columns import format_stats_dataframe_for_display
 
 PROFILE_HIDDEN_COLUMNS = frozenset(
@@ -14,7 +14,7 @@ PROFILE_HIDDEN_COLUMNS = frozenset(
 
 # Game log tables: internal keys and redundant date/index (season is in the section title).
 PROFILE_GAMELOG_HIDDEN_COLUMNS = frozenset(
-    {"game_id", "game_date", "game_index", "season"}
+    {"game_id", "game_date", "game_index", "season", "log_type"}
 )
 
 PROFILE_META_COLUMNS = [
@@ -41,10 +41,20 @@ def format_profile_table(
     )
 
 
-def format_game_log_table(df: pd.DataFrame) -> pd.DataFrame:
-    """Profile game log: hide internal ids and game_id/date/index (season is in the heading)."""
+def format_game_log_table(
+    df: pd.DataFrame,
+    sport_id: str,
+    position: str | None,
+    *,
+    log_type: str | None = None,
+) -> pd.DataFrame:
+    """Profile game log with role-appropriate stat columns."""
     hidden = PROFILE_HIDDEN_COLUMNS | PROFILE_GAMELOG_HIDDEN_COLUMNS
-    return format_profile_table(df, hide_columns=hidden)
+    base = ["team", "opponent", "fantasy_points"]
+    stat_cols = game_log_stat_columns(sport_id, position, log_type=log_type)
+    cols = [c for c in base if c in df.columns]
+    cols += [c for c in stat_cols if c in df.columns and c not in cols]
+    return format_profile_table(df, columns=cols, hide_columns=hidden)
 
 
 def profile_export_columns(sport_id: str, career: pd.DataFrame) -> list[str]:

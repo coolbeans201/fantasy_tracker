@@ -170,12 +170,34 @@ CREATE TABLE IF NOT EXISTS nba_player_game_stats (
 CREATE INDEX IF NOT EXISTS idx_nba_game_season ON nba_player_game_stats(season, player_id);
 """
 
+NHL_PLAYER_GAME_COLUMNS: tuple[str, ...] = (
+    "player_id",
+    "player_name",
+    "season",
+    "game_id",
+    "log_type",
+    "game_date",
+    "game_index",
+    "team",
+    "opponent",
+    "goals",
+    "assists",
+    "points",
+    "shots",
+    "wins",
+    "saves",
+    "goals_against",
+    "shutouts",
+    "fantasy_points_espn",
+)
+
 NHL_GAME_DDL = """
 CREATE TABLE IF NOT EXISTS nhl_player_game_stats (
     player_id VARCHAR NOT NULL,
     player_name VARCHAR,
     season INTEGER NOT NULL,
     game_id VARCHAR NOT NULL,
+    log_type VARCHAR NOT NULL DEFAULT 'skater',
     game_date DATE,
     game_index INTEGER,
     team VARCHAR,
@@ -184,10 +206,38 @@ CREATE TABLE IF NOT EXISTS nhl_player_game_stats (
     assists DOUBLE DEFAULT 0,
     points DOUBLE DEFAULT 0,
     shots DOUBLE DEFAULT 0,
+    wins DOUBLE DEFAULT 0,
+    saves DOUBLE DEFAULT 0,
+    goals_against DOUBLE DEFAULT 0,
+    shutouts DOUBLE DEFAULT 0,
     fantasy_points_espn DOUBLE,
-    PRIMARY KEY (player_id, season, game_id)
+    PRIMARY KEY (player_id, season, game_id, log_type)
 );
 """
+
+MLB_PLAYER_GAME_COLUMNS: tuple[str, ...] = (
+    "player_id",
+    "player_name",
+    "season",
+    "game_id",
+    "log_type",
+    "game_date",
+    "game_index",
+    "team",
+    "opponent",
+    "runs",
+    "home_runs",
+    "rbi",
+    "stolen_bases",
+    "walks",
+    "strikeouts_bat",
+    "wins",
+    "strikeouts_pitch",
+    "saves",
+    "innings_pitched",
+    "era",
+    "fantasy_points_espn",
+)
 
 MLB_GAME_DDL = """
 CREATE TABLE IF NOT EXISTS mlb_player_game_stats (
@@ -195,12 +245,24 @@ CREATE TABLE IF NOT EXISTS mlb_player_game_stats (
     player_name VARCHAR,
     season INTEGER NOT NULL,
     game_id VARCHAR NOT NULL,
+    log_type VARCHAR NOT NULL DEFAULT 'hitting',
     game_date DATE,
     game_index INTEGER,
     team VARCHAR,
     opponent VARCHAR,
+    runs DOUBLE DEFAULT 0,
+    home_runs DOUBLE DEFAULT 0,
+    rbi DOUBLE DEFAULT 0,
+    stolen_bases DOUBLE DEFAULT 0,
+    walks DOUBLE DEFAULT 0,
+    strikeouts_bat DOUBLE DEFAULT 0,
+    wins DOUBLE DEFAULT 0,
+    strikeouts_pitch DOUBLE DEFAULT 0,
+    saves DOUBLE DEFAULT 0,
+    innings_pitched DOUBLE DEFAULT 0,
+    era DOUBLE DEFAULT 0,
     fantasy_points_espn DOUBLE,
-    PRIMARY KEY (player_id, season, game_id)
+    PRIMARY KEY (player_id, season, game_id, log_type)
 );
 """
 
@@ -350,6 +412,93 @@ def ensure_mlb_player_season_stats_schema(conn: duckdb.DuckDBPyConnection) -> No
     _migrate_mlb_player_season_stats(conn)
 
 
+def _mlb_game_table_exists(conn: duckdb.DuckDBPyConnection) -> bool:
+    try:
+        row = conn.execute(
+            """
+            SELECT 1
+            FROM information_schema.tables
+            WHERE lower(table_name) = 'mlb_player_game_stats'
+            LIMIT 1
+            """
+        ).fetchone()
+        return row is not None
+    except duckdb.Error:
+        return False
+
+
+def _mlb_game_primary_key_columns(conn: duckdb.DuckDBPyConnection) -> list[str]:
+    try:
+        rows = conn.execute(
+            """
+            SELECT column_name
+            FROM information_schema.key_column_usage
+            WHERE lower(table_name) = 'mlb_player_game_stats'
+            ORDER BY ordinal_position
+            """
+        ).fetchall()
+        return [str(r[0]).lower() for r in rows]
+    except duckdb.Error:
+        return []
+
+
+def _mlb_game_has_column(conn: duckdb.DuckDBPyConnection, name: str) -> bool:
+    try:
+        row = conn.execute(
+            """
+            SELECT 1
+            FROM information_schema.columns
+            WHERE lower(table_name) = 'mlb_player_game_stats'
+              AND lower(column_name) = lower(?)
+            LIMIT 1
+            """,
+            [name],
+        ).fetchone()
+        return row is not None
+    except duckdb.Error:
+        return False
+
+
+def _migrate_mlb_player_game_stats(conn: duckdb.DuckDBPyConnection) -> None:
+    """Recreate MLB game log table when PK or stat columns are outdated."""
+    if not _mlb_game_table_exists(conn):
+        return
+    pk = _mlb_game_primary_key_columns(conn)
+    needs_rebuild = pk != ["player_id", "season", "game_id", "log_type"] or not _mlb_game_has_column(
+        conn, "runs"
+    )
+    if not needs_rebuild:
+        return
+    try:
+        existing = conn.execute("SELECT * FROM mlb_player_game_stats").df()
+    except duckdb.Error:
+        existing = None
+    conn.execute("DROP TABLE mlb_player_game_stats")
+    conn.execute(MLB_GAME_DDL)
+    if existing is not None and not existing.empty:
+        existing.columns = [str(c).lower() for c in existing.columns]
+        if "log_type" not in existing.columns:
+            existing["log_type"] = "hitting"
+        for col in MLB_PLAYER_GAME_COLUMNS:
+            if col not in existing.columns:
+                existing[col] = None
+        conn.register("_mlb_game_mig", existing)
+        cols = ", ".join(MLB_PLAYER_GAME_COLUMNS)
+        conn.execute(
+            f"""
+            INSERT INTO mlb_player_game_stats ({cols})
+            SELECT {cols} FROM _mlb_game_mig
+            """
+        )
+        conn.unregister("_mlb_game_mig")
+
+
+def ensure_mlb_player_game_stats_schema(conn: duckdb.DuckDBPyConnection) -> None:
+    """Apply MLB game-log DDL and migrate legacy tables."""
+    conn.execute(MLB_GAME_DDL)
+    _migrate_mlb_player_game_stats(conn)
+
+
 def _nhl_table_exists(conn: duckdb.DuckDBPyConnection) -> bool:
     try:
         row = conn.execute(
@@ -453,10 +602,97 @@ def ensure_nhl_player_season_stats_schema(conn: duckdb.DuckDBPyConnection) -> No
     _migrate_nhl_player_season_stats(conn)
 
 
+def _nhl_game_table_exists(conn: duckdb.DuckDBPyConnection) -> bool:
+    try:
+        row = conn.execute(
+            """
+            SELECT 1
+            FROM information_schema.tables
+            WHERE lower(table_name) = 'nhl_player_game_stats'
+            LIMIT 1
+            """
+        ).fetchone()
+        return row is not None
+    except duckdb.Error:
+        return False
+
+
+def _nhl_game_primary_key_columns(conn: duckdb.DuckDBPyConnection) -> list[str]:
+    try:
+        rows = conn.execute(
+            """
+            SELECT column_name
+            FROM information_schema.key_column_usage
+            WHERE lower(table_name) = 'nhl_player_game_stats'
+            ORDER BY ordinal_position
+            """
+        ).fetchall()
+        return [str(r[0]).lower() for r in rows]
+    except duckdb.Error:
+        return []
+
+
+def _nhl_game_has_column(conn: duckdb.DuckDBPyConnection, name: str) -> bool:
+    try:
+        row = conn.execute(
+            """
+            SELECT 1
+            FROM information_schema.columns
+            WHERE lower(table_name) = 'nhl_player_game_stats'
+              AND lower(column_name) = lower(?)
+            LIMIT 1
+            """,
+            [name],
+        ).fetchone()
+        return row is not None
+    except duckdb.Error:
+        return False
+
+
+def _migrate_nhl_player_game_stats(conn: duckdb.DuckDBPyConnection) -> None:
+    """Recreate NHL game log table when PK or goalie columns are outdated."""
+    if not _nhl_game_table_exists(conn):
+        return
+    pk = _nhl_game_primary_key_columns(conn)
+    needs_rebuild = pk != ["player_id", "season", "game_id", "log_type"] or not _nhl_game_has_column(
+        conn, "saves"
+    )
+    if not needs_rebuild:
+        return
+    try:
+        existing = conn.execute("SELECT * FROM nhl_player_game_stats").df()
+    except duckdb.Error:
+        existing = None
+    conn.execute("DROP TABLE nhl_player_game_stats")
+    conn.execute(NHL_GAME_DDL)
+    if existing is not None and not existing.empty:
+        existing.columns = [str(c).lower() for c in existing.columns]
+        if "log_type" not in existing.columns:
+            existing["log_type"] = "skater"
+        for col in NHL_PLAYER_GAME_COLUMNS:
+            if col not in existing.columns:
+                existing[col] = None
+        conn.register("_nhl_game_mig", existing)
+        cols = ", ".join(NHL_PLAYER_GAME_COLUMNS)
+        conn.execute(
+            f"""
+            INSERT INTO nhl_player_game_stats ({cols})
+            SELECT {cols} FROM _nhl_game_mig
+            """
+        )
+        conn.unregister("_nhl_game_mig")
+
+
+def ensure_nhl_player_game_stats_schema(conn: duckdb.DuckDBPyConnection) -> None:
+    """Apply NHL game-log DDL and migrate legacy tables."""
+    conn.execute(NHL_GAME_DDL)
+    _migrate_nhl_player_game_stats(conn)
+
+
 def init_sport_tables(conn: duckdb.DuckDBPyConnection) -> None:
     ensure_mlb_player_season_stats_schema(conn)
     conn.execute(NBA_SEASON_DDL)
     ensure_nhl_player_season_stats_schema(conn)
     conn.execute(NBA_GAME_DDL)
-    conn.execute(NHL_GAME_DDL)
-    conn.execute(MLB_GAME_DDL)
+    ensure_nhl_player_game_stats_schema(conn)
+    ensure_mlb_player_game_stats_schema(conn)

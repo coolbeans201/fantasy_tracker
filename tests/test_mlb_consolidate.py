@@ -14,9 +14,13 @@ def test_summary_team_detection():
     assert is_summary_team("tot")
     assert not is_summary_team("LAD")
     assert normalize_mlb_team(" lad ") == "LAD"
+    assert normalize_mlb_team("LOS ANGELES") == "LAD"
 
 
-def test_drop_2tm_when_team_splits_exist():
+def test_resolve_mlb_team_abbrev_city():
+    from src.sports.mlb.teams import resolve_mlb_team_abbrev
+
+    assert resolve_mlb_team_abbrev("LOS ANGELES", {"LOS ANGELES": "LAD"}) == "LAD"
     frame = pd.DataFrame(
         [
             {"player_id": "p1", "season": 2024, "position": "OF", "team": "LAD", "games": 50},

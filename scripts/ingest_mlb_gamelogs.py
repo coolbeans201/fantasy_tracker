@@ -29,6 +29,17 @@ def main() -> None:
         default=0.25,
         help="Delay between player requests in seconds.",
     )
+    p.add_argument("--workers", type=int, default=6, help="Parallel fetch workers.")
+    p.add_argument(
+        "--no-cache",
+        action="store_true",
+        help="Skip data/cache/gamelogs/mlb/{season}/ resume files.",
+    )
+    p.add_argument(
+        "--refresh-cache",
+        action="store_true",
+        help="Refetch all players even if cache exists.",
+    )
     args = p.parse_args()
 
     init_schema()
@@ -39,6 +50,9 @@ def main() -> None:
             args.season,
             limit_players=args.limit_players,
             delay_sec=max(0.0, float(args.delay)),
+            workers=max(1, int(args.workers)),
+            use_cache=not args.no_cache,
+            refresh_cache=args.refresh_cache,
         )
         print(
             f"Ingested MLB game logs for {args.season}: {summary['rows']} rows "

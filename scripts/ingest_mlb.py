@@ -27,6 +27,11 @@ from src.sports.mlb.positions import (  # noqa: E402
     normalize_mlb_field_position,
 )
 from src.sports.mlb.consolidate import consolidate_mlb_season_frame  # noqa: E402
+from src.sports.mlb.regular_season_games import (  # noqa: E402
+    _load_team_aliases,
+    apply_regular_season_games,
+    fetch_regular_season_games_map,
+)
 from src.sports.mlb.scoring import compute_hitter_fp, compute_pitcher_fp  # noqa: E402
 from src.sports.mlb.teams import normalize_mlb_team  # noqa: E402
 from src.text_encoding import normalize_unicode_series  # noqa: E402
@@ -180,6 +185,9 @@ def _batting_frame_bref(year: int) -> pd.DataFrame:
     # Keep hitter cohort stable when source position tags are inconsistent.
     pos_by_id = _mlb_primary_position_by_id(year)
     out["position"] = out["player_id"].map(pos_by_id).fillna("H")
+    from src.rankings.fantasypros_positions import overlay_positions_on_frame
+
+    out, _fp_n = overlay_positions_on_frame(out, "mlb")
     out["team"] = _series(raw, "Tm", "Team", "team").map(normalize_mlb_team)
     out["games"] = games.loc[raw.index].astype(int)
     out["plate_appearances"] = pd.to_numeric(_series(raw, "PA"), errors="coerce").fillna(0)
@@ -242,6 +250,9 @@ def _batting_frame_fangraphs(year: int) -> pd.DataFrame:
     out["player_name"] = normalize_unicode_series(raw["Name"].astype(str))
     out["season"] = year
     out["position"] = "H"
+    from src.rankings.fantasypros_positions import overlay_positions_on_frame
+
+    out, _fp_n = overlay_positions_on_frame(out, "mlb")
     out["team"] = raw.get("Team", pd.Series(["UNK"] * len(raw))).map(normalize_mlb_team)
     out["games"] = pd.to_numeric(raw.get("G", 0), errors="coerce").fillna(0).astype(int)
     out["plate_appearances"] = pd.to_numeric(raw.get("PA", 0), errors="coerce").fillna(0)
@@ -347,6 +358,15 @@ def ingest_season(year: int, *, source: str = "auto") -> None:
     conn = get_connection()
     ensure_mlb_player_season_stats_schema(conn)
     hit, pit, used = _fetch_frames(year, source)
+    try:
+        aliases = _load_team_aliases(year)
+        hit_map = fetch_regular_season_games_map(year, group="hitting", aliases=aliases)
+        pit_map = fetch_regular_season_games_map(year, group="pitching", aliases=aliases)
+        hit = apply_regular_season_games(hit, hit_map, season=year, aliases=aliases)
+        pit = apply_regular_season_games(pit, pit_map, season=year, aliases=aliases)
+        print(f"  MLB {year}: regular-season games overlay from MLB Stats API")
+    except Exception as exc:
+        print(f"  MLB {year}: games overlay skipped ({exc!r}); using source G column")
     frame = consolidate_mlb_season_frame(pd.concat([hit, pit], ignore_index=True))
     if frame.empty:
         print(f"No MLB data for {year} (source={used}).")

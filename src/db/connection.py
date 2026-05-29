@@ -298,6 +298,25 @@ def _migrate_rankings_tables(conn: duckdb.DuckDBPyConnection) -> None:
         conn.execute("ALTER TABLE ecr_weekly ADD COLUMN sport VARCHAR DEFAULT 'nfl'")
     except duckdb.Error:
         pass
+    conn.execute(
+        """
+        CREATE TABLE IF NOT EXISTS fp_projections (
+            sport VARCHAR NOT NULL,
+            player_id VARCHAR,
+            fantasypros_id VARCHAR NOT NULL,
+            season INTEGER NOT NULL,
+            week INTEGER NOT NULL DEFAULT 0,
+            projection_type VARCHAR NOT NULL,
+            position VARCHAR,
+            player_name VARCHAR,
+            team VARCHAR,
+            projected_points DOUBLE,
+            stats_json VARCHAR,
+            ingested_at TIMESTAMP NOT NULL,
+            PRIMARY KEY (sport, fantasypros_id, season, week, projection_type, position)
+        )
+        """
+    )
 
 
 

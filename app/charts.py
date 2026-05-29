@@ -125,8 +125,10 @@ def game_log_fantasy_points_chart(
     y_column: str = "fantasy_points",
     y_label: str = "Fantasy Points",
     x_label: str = "Game # (chronological)",
+    p25: float | None = None,
+    p75: float | None = None,
 ) -> None:
-    """Line chart of fantasy points by game in date order (no boom/bust bands)."""
+    """Line chart of fantasy points by game with optional strong/weak markers."""
     if games_df.empty or y_column not in games_df.columns:
         st.caption("No game log chart data.")
         return
@@ -159,6 +161,33 @@ def game_log_fantasy_points_chart(
         zorder=2,
     )
 
+    can_tag = p25 is not None and p75 is not None and p25 < p75
+    drew_strong = drew_weak = False
+    if can_tag:
+        for x, fp in zip(x_vals, fp_vals):
+            if fp != fp:
+                continue
+            if fp >= p75:
+                ax.scatter(
+                    [x],
+                    [fp],
+                    s=70,
+                    color="#43a047",
+                    zorder=4,
+                    label="Strong game" if not drew_strong else None,
+                )
+                drew_strong = True
+            elif fp <= p25:
+                ax.scatter(
+                    [x],
+                    [fp],
+                    s=70,
+                    color="#e53935",
+                    zorder=4,
+                    label="Weak game" if not drew_weak else None,
+                )
+                drew_weak = True
+
     season_avg = float(fp_vals.mean()) if len(fp_vals) and fp_vals.notna().any() else None
     if season_avg is not None and season_avg == season_avg:
         ax.axhline(
@@ -169,6 +198,8 @@ def game_log_fantasy_points_chart(
             label=f"Season avg ({season_avg:.1f})",
             zorder=1,
         )
+    handles, labels = ax.get_legend_handles_labels()
+    if handles:
         ax.legend(loc="best", fontsize=8)
 
     ax.set_xlabel(x_label)

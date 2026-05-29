@@ -64,6 +64,12 @@ def fetch_season(
         out.loc[missing, "position"] = _col(raw, "PLAYER_POSITION").loc[missing].apply(
             normalize_nba_position
         )
+    from src.rankings.fantasypros_positions import overlay_positions_on_frame
+
+    out, fp_updated = overlay_positions_on_frame(out, "nba")
+    if fp_updated:
+        print(f"  FantasyPros position overlay: {fp_updated} player(s)")
+
     missing = out["position"].isna()
     if missing.any():
         print(
