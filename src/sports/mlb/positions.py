@@ -6,7 +6,8 @@ from __future__ import annotations
 LEGACY_HITTER = "H"
 LEGACY_PITCHER = "P"
 
-# Stored when source has no field position (e.g. two-way hitters like Ohtani as DH).
+# Fallback when BRef Pos and MLB API primaryPosition are both missing — not a
+# “DH eligibility” tag. Most rows get CF/1B/OF/etc.; only a small share is DH.
 DEFAULT_HITTER_POSITION = "DH"
 
 FIELD_POSITIONS = ["C", "1B", "2B", "3B", "SS", "LF", "CF", "RF", "OF", "DH", "UTIL"]

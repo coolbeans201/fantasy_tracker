@@ -100,18 +100,32 @@ def _primary_position(sport_id: str, row: dict[str, Any]) -> str | None:
     return pos
 
 
+def _parse_fp_week(payload: dict[str, Any], *, request_week: int | None = None) -> int | None:
+    if request_week is not None:
+        return int(request_week)
+    for key in ("week", "fp_week"):
+        raw = payload.get(key)
+        if raw is not None and str(raw).strip() != "":
+            parsed = _int_or_none(raw)
+            if parsed is not None and parsed >= 1:
+                return parsed
+    return None
+
+
 def consensus_rankings_to_draft_ecr(
     payload: dict[str, Any],
     *,
     sport_id: str,
     season: int,
     position_bucket: str | None = None,
+    week: int | None = None,
 ) -> pd.DataFrame:
-    """``consensus-rankings`` response → draft ECR frame (pre-map)."""
+    """``consensus-rankings`` response → draft or weekly ECR frame (pre-map)."""
     players = payload.get("players") or []
     if not isinstance(players, list):
         return pd.DataFrame()
 
+    fp_week = _parse_fp_week(payload, request_week=week)
     rows: list[dict[str, Any]] = []
     for raw_p in players:
         if not isinstance(raw_p, dict):
@@ -136,25 +150,172 @@ def consensus_rankings_to_draft_ecr(
             pos = normalize_nba_ecr_position(pos, position_bucket=position_bucket)
         if not pos:
             continue
-        rows.append(
-            {
-                "sport": sport_id,
-                "fantasypros_id": str(fpid).strip(),
-                "season": int(season),
-                "position": pos,
-                "ecr_rank": rank,
-                "ecr_sd": _float_or_none(p.get("rank_std")),
-                "player_name": fp_player_display_name(p),
-                "team": str(p.get("player_team_id") or p.get("team_id") or "").strip().upper()
-                or None,
-                "scrape_date": date.today(),
-            }
-        )
+        row_data: dict[str, Any] = {
+            "sport": sport_id,
+            "fantasypros_id": str(fpid).strip(),
+            "season": int(season),
+            "position": pos,
+            "ecr_rank": rank,
+            "ecr_sd": _float_or_none(p.get("rank_std")),
+            "player_name": fp_player_display_name(p),
+            "team": str(p.get("player_team_id") or p.get("team_id") or "").strip().upper()
+            or None,
+            "scrape_date": date.today(),
+        }
+        if fp_week is not None:
+            row_data["week"] = int(fp_week)
+        rows.append(row_data)
 
     if not rows:
         return pd.DataFrame()
     out = pd.DataFrame(rows)
-    return out.drop_duplicates(subset=["fantasypros_id", "season", "position"], keep="first")
+    dedupe = ["fantasypros_id", "season", "position"]
+    if "week" in out.columns:
+        dedupe = ["fantasypros_id", "season", "week", "position"]
+    return out.drop_duplicates(subset=dedupe, keep="first")
+
+
+def consensus_rankings_to_weekly_ecr(
+    payload: dict[str, Any],
+    *,
+    sport_id: str,
+    season: int,
+    week: int,
+    position_bucket: str | None = None,
+) -> pd.DataFrame:
+    """Weekly consensus board — same parser as draft with ``week`` set."""
+    return consensus_rankings_to_draft_ecr(
+        payload,
+        sport_id=sport_id,
+        season=season,
+        position_bucket=position_bucket,
+        week=int(week),
+    )
+
+
+def _ecr_rank_from_nested_rank(rank: Any, *, prefer_keys: tuple[str, ...] = ("ALL", "all")) -> int | None:
+    """Extract a single ECR integer from a player's ``rank`` object."""
+    if not isinstance(rank, dict):
+        return None
+    for flat_key in ("rank_ecr", "ECR", "ecr"):
+        direct = _int_or_none(rank.get(flat_key))
+        if direct is not None and direct >= 1:
+            return direct
+    for bucket_key in ("ECR_AVG", "ECR", "ecr_avg"):
+        bucket = rank.get(bucket_key)
+        if not isinstance(bucket, dict):
+            continue
+        for key in prefer_keys:
+            val = _int_or_none(bucket.get(key))
+            if val is not None and val >= 1:
+                return val
+        vals = [_int_or_none(v) for v in bucket.values()]
+        good = [v for v in vals if v is not None and v >= 1]
+        if good:
+            return min(good)
+    return None
+
+
+def _ecr_sd_from_nested_rank(rank: Any) -> float | None:
+    if not isinstance(rank, dict):
+        return None
+    for bucket_key in ("ECR_STD", "ecr_std"):
+        bucket = rank.get(bucket_key)
+        if isinstance(bucket, dict):
+            for key in ("ALL", "all"):
+                val = _float_or_none(bucket.get(key))
+                if val is not None:
+                    return val
+            vals = [_float_or_none(v) for v in bucket.values()]
+            good = [v for v in vals if v is not None]
+            if good:
+                return sum(good) / len(good)
+    return _float_or_none(rank.get("rank_std") or rank.get("ECR_STD"))
+
+
+def rankings_to_ecr(
+    payload: dict[str, Any],
+    *,
+    sport_id: str,
+    season: int,
+    week: int | None = None,
+    position_bucket: str | None = None,
+) -> pd.DataFrame:
+    """
+    ``/{sport}/{season}/rankings`` response → ECR frame (pre-map).
+
+    Uses each player's nested ``rank.ECR`` / ``rank.ECR_AVG`` (prefers ``ALL``).
+    Player ids may appear as ``player_id`` or ``id``.
+    """
+    players = payload.get("players") or []
+    if not isinstance(players, list):
+        return pd.DataFrame()
+
+    fp_week = _parse_fp_week(payload, request_week=week)
+    rows: list[dict[str, Any]] = []
+    for raw_p in players:
+        if not isinstance(raw_p, dict):
+            continue
+        p = _merge_fp_player_row(raw_p)
+        fpid = p.get("player_id") or p.get("id")
+        rank_obj = p.get("rank")
+        rank = _int_or_none(p.get("rank_ecr") or p.get("rank_ave"))
+        if rank is None:
+            rank = _ecr_rank_from_nested_rank(rank_obj)
+        if fpid is None or rank is None or rank < 1:
+            continue
+        pos = _primary_position(sport_id, p)
+        sid = str(sport_id).strip().lower()
+        if sid == "mlb":
+            from src.sports.mlb.positions import normalize_mlb_ecr_position
+
+            pos = normalize_mlb_ecr_position(pos, position_bucket=position_bucket)
+        elif sid == "nba":
+            from src.sports.nba.positions import normalize_nba_ecr_position
+
+            pos = normalize_nba_ecr_position(pos, position_bucket=position_bucket)
+        if not pos:
+            continue
+        row_data: dict[str, Any] = {
+            "sport": sport_id,
+            "fantasypros_id": str(fpid).strip(),
+            "season": int(season),
+            "position": pos,
+            "ecr_rank": rank,
+            "ecr_sd": _ecr_sd_from_nested_rank(rank_obj),
+            "player_name": fp_player_display_name(p),
+            "team": str(p.get("player_team_id") or p.get("team_id") or "").strip().upper()
+            or None,
+            "scrape_date": date.today(),
+        }
+        if fp_week is not None:
+            row_data["week"] = int(fp_week)
+        rows.append(row_data)
+
+    if not rows:
+        return pd.DataFrame()
+    out = pd.DataFrame(rows)
+    dedupe = ["fantasypros_id", "season", "position"]
+    if "week" in out.columns:
+        dedupe = ["fantasypros_id", "season", "week", "position"]
+    return out.drop_duplicates(subset=dedupe, keep="first")
+
+
+def rankings_to_weekly_ecr(
+    payload: dict[str, Any],
+    *,
+    sport_id: str,
+    season: int,
+    week: int,
+    position_bucket: str | None = None,
+) -> pd.DataFrame:
+    return rankings_to_ecr(
+        payload,
+        sport_id=sport_id,
+        season=season,
+        week=int(week),
+        position_bucket=position_bucket,
+    )
 
 
 def players_list_to_draft_ecr(

@@ -721,16 +721,71 @@ def load_ecr_weekly(
     conn: duckdb.DuckDBPyConnection,
     season: int,
     position: str | None = None,
+    sport: str = "nfl",
 ) -> pd.DataFrame:
     query = """
         SELECT player_id, season, week, position, ecr_rank, player_name, team
         FROM ecr_weekly
-        WHERE season = ?
+        WHERE season = ? AND sport = ?
     """
-    params: list = [season]
+    params: list = [season, str(sport).strip().lower()]
     if position:
         query += " AND position = ?"
         params.append(position)
+    return _fetch_df(conn, query, params)
+
+
+def season_has_weekly_rankings(
+    conn: duckdb.DuckDBPyConnection,
+    season: int,
+    sport: str,
+) -> bool:
+    """True if enough weekly ECR exists for beat-weekly-rank UI."""
+    from src.analytics.variance import load_thresholds
+
+    if not has_rankings_data(conn):
+        return False
+    min_rows = int(load_thresholds().get("min_ecr_rows_per_season", 50))
+    sid = str(sport).strip().lower()
+    try:
+        row = conn.execute(
+            "SELECT COUNT(*) FROM ecr_weekly WHERE season = ? AND sport = ?",
+            [int(season), sid],
+        ).fetchone()
+        return bool(row and row[0] and int(row[0]) >= min_rows)
+    except duckdb.Error:
+        return False
+
+
+def load_player_week_stats(
+    conn: duckdb.DuckDBPyConnection,
+    sport: str,
+    season: int,
+    *,
+    player_id: str | None = None,
+    position: str | None = None,
+) -> pd.DataFrame:
+    """Mon–Sun fantasy-week rollups for a sport season."""
+    sid = str(sport).strip().lower()
+    try:
+        conn.execute("SELECT 1 FROM player_week_stats LIMIT 1")
+    except duckdb.Error:
+        return pd.DataFrame()
+
+    query = """
+        SELECT sport, player_id, season, week, position, fantasy_points, games,
+               week_start, week_end
+        FROM player_week_stats
+        WHERE sport = ? AND season = ?
+    """
+    params: list = [sid, int(season)]
+    if player_id:
+        query += " AND player_id = ?"
+        params.append(str(player_id).strip())
+    if position:
+        query += " AND position = ?"
+        params.append(position)
+    query += " ORDER BY week, position"
     return _fetch_df(conn, query, params)
 
 

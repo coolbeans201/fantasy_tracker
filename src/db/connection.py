@@ -317,6 +317,35 @@ def _migrate_rankings_tables(conn: duckdb.DuckDBPyConnection) -> None:
         )
         """
     )
+    _migrate_player_week_stats(conn)
+
+
+def _migrate_player_week_stats(conn: duckdb.DuckDBPyConnection) -> None:
+    conn.execute(
+        """
+        CREATE TABLE IF NOT EXISTS player_week_stats (
+            sport VARCHAR NOT NULL,
+            player_id VARCHAR NOT NULL,
+            season INTEGER NOT NULL,
+            week INTEGER NOT NULL,
+            position VARCHAR NOT NULL,
+            fantasy_points DOUBLE,
+            games INTEGER,
+            week_start DATE,
+            week_end DATE,
+            PRIMARY KEY (sport, player_id, season, week, position)
+        )
+        """
+    )
+    try:
+        conn.execute(
+            """
+            CREATE INDEX IF NOT EXISTS idx_player_week_stats_lookup
+            ON player_week_stats(sport, season, player_id, week)
+            """
+        )
+    except duckdb.Error:
+        pass
 
 
 

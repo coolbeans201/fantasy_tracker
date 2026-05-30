@@ -21,11 +21,43 @@ from src.rankings.fantasypros_client import (  # noqa: E402
     news_path,
     players_path,
     projections_path,
+    rankings_path,
 )
 from src.rankings.fantasypros_config import ENV_API_KEY, get_fantasypros_api_key  # noqa: E402
 
 _PROBE_PATH = news_path("NFL")
 _PROBE_PARAMS = {"limit": 1}
+
+_SPORTS_PROBE = ("nba", "mlb", "nhl")
+
+
+def _consensus_probe_endpoints() -> list[tuple[str, str, dict | None]]:
+    out: list[tuple[str, str, dict | None]] = []
+    for sid in _SPORTS_PROBE:
+        year = 2025 if sid != "mlb" else 2025
+        out.append(
+            (
+                f"{sid.upper()} draft ALL {year}",
+                consensus_rankings_path(sid, year),
+                {"position": "ALL", "type": "draft"},
+            )
+        )
+        out.append(
+            (
+                f"{sid.upper()} weekly ALL w1 {year}",
+                consensus_rankings_path(sid, year),
+                {"position": "ALL", "week": 1},
+            )
+        )
+        out.append(
+            (
+                f"{sid.upper()} rankings w1 {year}",
+                rankings_path(sid, year),
+                {"week": 1, "min": "true"},
+            )
+        )
+    return out
+
 
 _ENDPOINTS: list[tuple[str, str, dict | None]] = [
     ("NFL news", news_path("NFL"), {"limit": 1}),
@@ -35,20 +67,29 @@ _ENDPOINTS: list[tuple[str, str, dict | None]] = [
     (
         "NBA consensus 2025",
         consensus_rankings_path("nba", 2025),
-        {"position": "ALL", "type": "draft"},
+        {"position": "ALL", "week": 0},
     ),
     (
         "NBA projections 2025",
         projections_path("nba", 2025),
         {"position": "ALL", "type": "preseason"},
     ),
-]
+] + _consensus_probe_endpoints()
 
 
 def _try_raw(key: str, path: str, headers: dict[str, str], params: dict | None) -> tuple[int, str]:
     url = f"{BASE_URL}/{path}"
     resp = requests.get(url, headers=headers, params=params or {}, timeout=30)
     return resp.status_code, (resp.text or "")[:120]
+
+
+def _summarize_consensus(data: dict) -> str:
+    players = data.get("players") or []
+    n = len(players) if isinstance(players, list) else 0
+    week = data.get("week")
+    season = data.get("season") or data.get("year")
+    extra = f", week={week}" if week is not None else ""
+    return f", players={n}, api_season={season}{extra}"
 
 
 def main() -> None:
@@ -79,6 +120,8 @@ def main() -> None:
             data = get_json(path, params=params, api_key=key)
             count = data.get("count")
             extra = f", count={count}" if count is not None else ""
+            if "consensus-rankings" in path or path.endswith("/rankings"):
+                extra += _summarize_consensus(data)
             print(f"  OK   {label} ({path}{extra})")
             ok += 1
         except FantasyProsAPIError as exc:
@@ -94,7 +137,14 @@ def main() -> None:
     print(f"{ok}/{len(_ENDPOINTS)} endpoint groups succeeded.")
     print("\nNext:")
     print("  .\\.venv\\Scripts\\python.exe scripts\\refresh_fp_positions.py --sport nba")
-    print("  .\\.venv\\Scripts\\python.exe scripts\\ingest_sport_rankings.py --sport nba --season 2025")
+    print(
+        "  .\\.venv\\Scripts\\python.exe scripts\\ingest_sport_rankings.py "
+        "--sport nba --season 2025"
+    )
+    print(
+        "  .\\.venv\\Scripts\\python.exe scripts\\ingest_sport_rankings.py "
+        "--sport nba --season 2025 --weekly --weeks 1-5"
+    )
 
 
 if __name__ == "__main__":

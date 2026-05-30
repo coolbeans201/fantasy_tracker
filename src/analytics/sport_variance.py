@@ -52,6 +52,27 @@ def qualifies_for_peer_z_sport(
     return float(row.get(col, 0) or 0) >= minimum
 
 
+def weeks_per_regular_season_sport(sport_id: str) -> int:
+    raw = load_thresholds()
+    by_sport = raw.get("weeks_per_regular_season_by_sport") or {}
+    return int(by_sport.get(str(sport_id).strip().lower(), 17))
+
+
+def qualifies_weekly_volume_sport(row: pd.Series, sport_id: str) -> bool:
+    """Whether this player-week counts toward weekly rank-surprise peer cohorts."""
+    sid = str(sport_id).strip().lower()
+    weeks = weeks_per_regular_season_sport(sid)
+    gate = _volume_column_sport(sid, row.get("position"))
+    if gate is None:
+        return True
+    col, season_min = gate
+    if col == "games":
+        weekly_min = max(1.0, season_min / weeks)
+        return float(row.get("games", 0) or 0) >= weekly_min
+    weekly_min = season_min / weeks
+    return float(row.get(col, 0) or 0) >= weekly_min
+
+
 def add_volume_flags_sport(
     df: pd.DataFrame,
     sport_id: str,

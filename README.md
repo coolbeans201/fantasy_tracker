@@ -15,7 +15,7 @@ Open-source fantasy analytics for **completed seasons** — season leaders, play
 - **Player Profile:** **Career & window** (season table, peak/prime, career chart) and **season detail** (peer Z, consistency, weekly opponent, boom/bust weeks)
 - **Compare:** **All-time**, **single season** (same year for both), or **selected seasons** (sidebar window; cross-era OK)
 - **Variance:** Peer Z (season), optional peer Z (era), career Z; volume gates in [`src/analytics/thresholds.yaml`](src/analytics/thresholds.yaml)
-- **Expectations:** FantasyPros draft ECR vs finish rank (winners/losers); weekly ECR on Profile when rankings are ingested
+- **Expectations:** FantasyPros draft ECR vs finish rank (winners/losers) on MLB/NBA/NHL leaders; NFL weekly ECR + consistency on Profile when nflverse rankings are ingested
 
 ### MLB · NBA · NHL
 
@@ -25,7 +25,8 @@ Open-source fantasy analytics for **completed seasons** — season leaders, play
 - **Player Profile:** Career/window table, peak/prime highlights, season detail, game logs where ingested; **no internal `player_id` in tables**
 - **Compare:** **All-time**, **single season**, or **selected seasons**; **Skaters vs goalies** (NHL) and **Hitters vs pitchers** (MLB) cohort pickers — cross-cohort compare is blocked
 - **MLB:** Season Leaders default to **all hitter positions** (C, 1B, 2B, … — not the legacy **H** chip). **H** / **P** shortcuts still select full hitter or pitcher groups; do **not** mix hitters and pitchers. **Two-way** players (e.g. Ohtani): separate **hitting / pitching** season rows, profile game-log toggle, and role-specific stat columns. **Mid-season trades** = one row per team after re-ingest. **Career Z** omitted for **2020** (shortened season). BRef + FanGraphs ingest; BRef from **2008**. Season counting stats use MLB Stats API **regular season** totals (`gameType=R`; BRef `G`/`HR`/etc. can include postseason).
-- **NBA:** Season totals from `LeagueDashPlayerStats`; leaders default to **all positions** (PG–C). Draft ECR ingest uses **positional** FantasyPros boards (not overall `ALL`). Positions from team rosters + `PlayerIndex` fallback (cache under `data/cache/nba/`). Use `scripts/ingest_nba.py --index-only` for faster lookup, or `--refresh-positions` to refetch. Game logs: bulk league download by default; avoid `--per-player-only` unless bulk fails
+- **NBA / MLB / NHL:** Player Profile season detail is **per-game** (game log chart/table, game-level boom/bust). Draft ECR vs finish rank on leaders when `ingest_sport_rankings.py` has been run (no weekly FP consensus ingest in the UI).
+- **NBA:** Season totals from `LeagueDashPlayerStats`; leaders default to **all positions** (PG–C). Draft/weekly ECR default to **`position=ALL`** with positional reorder in code (use `--positional-boards` if needed). Positions from team rosters + `PlayerIndex` fallback (cache under `data/cache/nba/`). Use `scripts/ingest_nba.py --index-only` for faster lookup, or `--refresh-positions` to refetch. Game logs: bulk league download by default; avoid `--per-player-only` unless bulk fails
 - **MLB / NHL game logs:** One API call per player (large seasons). **Regular season only** (MLB `gameType=R`, NBA `Regular Season`, NHL `gameTypeId=2`). MLB: **hitting** + **pitching** rows; NHL: **skater** + **goalie** rows (`log_type`). Disk cache under `data/cache/gamelogs/`; `--refresh-cache` after schema changes. NHL: **3 workers**, **0.65s** delay; on `429` backs off. If rate-limited: `--workers 2 --delay 1.0`
 - **NHL:** Season Leaders default to **all skater positions** (C, LW, RW, D, F — not the legacy **S** chip). **S** / **G** shortcuts still work; do **not** mix skaters and goalies. Draft ECR uses positional FP boards when available (`/players` fallback). **Mid-season trades** = one row per team after re-ingest
 
@@ -57,8 +58,9 @@ All stats land in local **DuckDB** (`data/fantasy_tracker.duckdb`). Nothing is b
 | **NBA game logs** | nba_api | `PlayerGameLogs` (bulk, monthly chunks); `PlayerGameLog` (fallback) | Profile per-game tables | No |
 | **NHL season stats** | [nhl-api-py](https://github.com/coreyjs/nhl-api-py) (`nhlpy`) → NHL API | Skater + goalie season endpoints (paginated) | Season leaders, profiles (from **2005**) | No |
 | **NHL game logs** | NHL API | `api-web.nhle.com/v1/player/{id}/game-log/{season}/2` | Skater + goalie per-game rows; **one request per player** | No |
-| **MLB/NBA/NHL draft ECR** | [FantasyPros Public API v2](https://api.fantasypros.com/public/v2/docs) | `/{SPORT}/{season}/consensus-rankings` (positional boards: NBA PG–C, MLB SP/RP/H, NHL C/LW/RW/D/G; overall ranks re-bucketed at merge if needed) | Draft rank vs **positional** finish (name-matched) | **`FANTASYPROS_API_KEY`** |
-| **MLB/NBA/NHL projections** | FantasyPros Public API | `/{sport}/{season}/projections` | Optional projection tables | **`FANTASYPROS_API_KEY`** |
+| **MLB/NBA/NHL draft ECR** | [FantasyPros Public API v2](https://api.fantasypros.com/public/v2/docs) | `consensus-rankings?position=ALL&week=0` (optional `--positional-boards`) | Draft rank vs **positional** finish (name-matched) | **`FANTASYPROS_API_KEY`** |
+| **MLB/NBA/NHL weekly ECR** | FantasyPros Public API (optional) | `consensus-rankings?position=ALL&week=N` (~26 calls/season) | Not used in app UI; draft ECR only is the supported path | **`FANTASYPROS_API_KEY`** |
+| **MLB/NBA/NHL projections** | FantasyPros Public API | `/{sport}/{season}/projections?position=ALL` (one call) | Optional projection tables | **`FANTASYPROS_API_KEY`** |
 | **MLB/NBA FP positions** | FantasyPros Public API | `/{SPORT}/players` | Position overlay on ingested stats | **`FANTASYPROS_API_KEY`** |
 
 **Not external data:** ESPN-style fantasy points are computed locally from [`src/scoring/`](src/scoring/) presets (NFL offense/kicker/D/ST YAML + optional custom NFL presets in DuckDB). Peer Z volume gates live in [`src/analytics/thresholds.yaml`](src/analytics/thresholds.yaml).
@@ -119,7 +121,7 @@ Times vary with network, rate limits, and machine speed. Treat these as planning
 | NBA bulk season stats | 2000–2025 (~26 seasons) | **1–3 hours** | One stats call per season + **~30 team roster** calls each for positions |
 | NHL bulk season stats | 2005–2025 (~21 seasons) | **30–90 min** | Paginated skater + goalie API; **1 s pause** between seasons |
 | NFL rankings | `ingest_rankings.py` | **5–20 min** | nflverse ECR history download |
-| FantasyPros sport rankings | one sport × one recent season | **2–10 min** | Throttled API; **1 s+ delay** between calls recommended |
+| FantasyPros sport rankings | one sport × one recent season | **minutes–hours** | **~100 API calls/day** per key; default **`position=ALL`** (1 call/draft, 1/week); split `--weeks` across days |
 | **NBA game logs** | one season | **5–20 min** | Bulk `PlayerGameLogs` (~9 monthly chunks + retries) |
 | **MLB game logs** | one season | **30 min – 2 hours** | **One MLB Stats API call per player** (~600–800+ players); 6 workers |
 | **NHL game logs** | one season | **1–4 hours** | **One NHL API call per player**; default **0.65 s** spacing + 429 backoff |
@@ -162,12 +164,26 @@ Test FantasyPros access before running sport rankings ingest:
 
 Public API docs: [https://api.fantasypros.com/public/v2/docs](https://api.fantasypros.com/public/v2/docs)
 
-**FantasyPros limitations (important):**
+**FantasyPros Public API — daily call budget (important):**
+
+The Public API tier is roughly **100 HTTP calls per day per API key**. Hitting the cap returns **HTTP 429**; spacing requests helps pacing but does **not** raise the daily limit.
+
+| Operation | Default calls | Notes |
+|-----------|---------------|--------|
+| Draft ECR (one season) | **1** | `consensus-rankings?position=ALL&week=0` |
+| Weekly ECR (optional; not in UI) | **~26** | **1 GET per week** — only if you experiment outside the app |
+| Draft + projections (one run) | **2** | One consensus + one projections (`position=ALL`) |
+| `refresh_fp_positions.py` | **0–1** | `/players` cached ~7 days under `data/cache/fantasypros/` |
+| `fantasypros_probe.py` | **~10+** | Counts against the same quota — run sparingly |
+| `--positional-boards` | **3–5× per week/draft** | Emergency only; default ingest always uses **`position=ALL`** and reorders positions in code |
+
+**Recommended for MLB/NBA/NHL:** draft ECR only (1 call/season). Skip `--weekly` unless you are experimenting — it does not power the app UI.
+
+Other limitations:
 
 - URL params like `season >= 2012` are valid, but **consensus rankings and projections often return the current player pool** for old years — ingest refuses to load when names do not match that season (`fp_season_mismatch`).
-- Use `--delay 2` (or **`2.5`** for NBA draft ingest — five positional API calls) on `ingest_sport_rankings.py` if you hit **HTTP 429** rate limits; the script retries each position after a cooldown.
-- Draft consensus uses **position-specific** lists (not overall `ALL` for NBA/MLB/NHL), so beat-draft-rank compares like positions only.
-- FP `/players` responses are cached under `data/cache/fantasypros/` (gitignored). Use `--refresh-fp` to bypass cache after API cooldowns.
+- On **429**, wait for the daily window to reset (or use cache). Defaults: **`--delay 8 --fp-min-interval 8`** for `--weekly`; increase to **10** if you still see 429 while under the daily cap.
+- Beat-draft-rank and weekly surprise use **positional** finish ranks; that comes from **`assign_positional_ecr_ranks`** after the single `ALL` board — not from separate FP position endpoints.
 
 ### Phase 1 — Season stats (required for Leaders / Profile / Compare)
 
@@ -242,22 +258,26 @@ Disk cache: `data/cache/gamelogs/{sport}/{season}/` — re-run the same command 
 
 ### Phase 3 — FantasyPros (MLB / NBA / NHL) — **`FANTASYPROS_API_KEY` required**
 
-Used for **draft ECR**, optional **projections**, and (via a separate script) **position overlays**. Does **not** replace Phase 1 stats — FP has no shared IDs with BRef/nba_api/nhlpy; names are fuzzy-matched at ingest. API calls are throttled by default (**1 s** between consensus/projection requests); use **`--delay 2`** if you see HTTP **429**.
+Used for **draft ECR**, optional **projections**, and (via a separate script) **position overlays**. Does **not** replace Phase 1 stats — FP has no shared IDs with BRef/nba_api/nhlpy; names are fuzzy-matched at ingest.
+
+**Always `position=ALL` for consensus and projections** (one HTTP GET per draft board, per week, or per projections fetch). Positional ECR for analytics is derived in Python (`assign_positional_ecr_ranks`), not by calling PG/SG/SP/etc. endpoints — those are only available via **`--positional-boards`** when the `ALL` board fails your probe.
+
+Plan around **~100 Public API calls/day**. Draft + projections for three sports is a few calls; a full **`--weekly`** backfill (~26 calls/season each) burns most of a day and is **not wired into the app** anymore. Ingest scripts still support `--weekly` for experiments; cache under `data/cache/fantasypros/` if you use it.
 
 | Script | Purpose | API key? |
 |--------|---------|----------|
-| `scripts/ingest_sport_rankings.py` | Draft ECR → `ecr_draft`; projections → `fp_projections` | **Yes** |
+| `scripts/ingest_sport_rankings.py` | Draft ECR → `ecr_draft`; optional weekly → `ecr_weekly` (not in UI); projections → `fp_projections` | **Yes** |
 | `scripts/refresh_fp_positions.py` | Overlay FP positions on NBA/MLB season stats | **Yes** |
 | `scripts/rankings_coverage.py` | Report ECR match rate vs ingested stats | No (reads DB only) |
 | `scripts/diag_fp_nba_match.py` | Debug name overlap for a season | **Yes** |
 
 ```powershell
-# Draft ECR for recent seasons (repeat per sport/year you care about)
-.\.venv\Scripts\python.exe scripts\ingest_sport_rankings.py --sport nba --season 2025 --draft-only --delay 2.5
-.\.venv\Scripts\python.exe scripts\ingest_sport_rankings.py --sport mlb --season 2025 --draft-only --delay 2
-.\.venv\Scripts\python.exe scripts\ingest_sport_rankings.py --sport nhl --season 2025 --draft-only --delay 2.5
+# Draft ECR (default: one position=ALL call + in-code positional reorder)
+.\.venv\Scripts\python.exe scripts\ingest_sport_rankings.py --sport nba --season 2025 --delay 1.5
+.\.venv\Scripts\python.exe scripts\ingest_sport_rankings.py --sport mlb --season 2025 --delay 1.5
+.\.venv\Scripts\python.exe scripts\ingest_sport_rankings.py --sport nhl --season 2025 --delay 1.5
 
-# Projections only (MLB: fewer calls with default position set)
+# Projections only (one position=ALL call)
 .\.venv\Scripts\python.exe scripts\ingest_sport_rankings.py --sport mlb --season 2025 --projections-only
 
 # Fix positions on already-ingested NBA/MLB rows
@@ -433,11 +453,12 @@ Run `.\.venv\Scripts\python.exe scripts\check_env.py` first.
 | pandas build / Meson errors | **32-bit Python** — recreate venv (64-bit) and reinstall requirements |
 | `Activate.ps1` blocked | Skip activation; use `.\.venv\Scripts\python.exe` for all commands |
 | Empty Season Leaders | Lower min games; re-ingest; **Repair database**; check position filter (clearing all tags shows “select at least one position”) |
-| Absurd **draft ECR** / rank delta (e.g. 147) on MLB/NBA | Re-run `ingest_sport_rankings.py` with positional boards (`--draft-only --delay 2+`); old overall `ALL` ranks are re-bucketed at display time but re-ingest is best |
-| FantasyPros **429** on NBA draft | Wait 60–90s; retry with `--draft-only --delay 2.5` (five position calls) |
+| Absurd **draft ECR** / rank delta (e.g. 147) on MLB/NBA | Re-run `ingest_sport_rankings.py` (default `position=ALL` + in-code positional reorder); only use `--positional-boards` if `ALL` fails probe |
+| FantasyPros **429** on weekly ingest | Often **daily cap (~100 calls)** — split `--weeks` across days; re-run same command (cache = 0 calls); avoid `fantasypros_probe.py` before big ingests |
 | D/ST **points/yards allowed** all zero | **Repair database** or re-ingest NFL; PA needs schedules, yards need team stats |
 | MLB names like `Jos\xc3\xa9` | **Repair database** or re-ingest MLB (`src/text_encoding.py` fixes on read + backfill) |
 | MLB positions all **H** / **P** in **stored stats** | Re-ingest MLB; new ingests store **CF, 1B, SP, RP**, etc. Leaders UI defaults to explicit field positions; **H**/**P** remain shortcuts |
+| **Few players labeled DH** on MLB leaders | Expected: position is **primary field** from BRef `Pos` (first token in `1B-DH`) or MLB Stats API, not game-level DH. True DHs with no field pos fall back to **DH**; most DH-eligible stars stay **1B/OF/LF**. Filter **H** or multiple positions — not **DH** only. `scripts/mlb_position_report.py` shows counts |
 | Missing **Opponent** (NFL weekly) | **Repair database** or re-ingest that season |
 | Player not in search | Type 2+ letters; **Repair database** or `scripts/rebuild_players.py` |
 | MLB BRef bulk skips seasons | Retry with `--season YEAR --source bref`; use `--fail-fast` to stop on first error |
@@ -451,7 +472,7 @@ Run `.\.venv\Scripts\python.exe scripts\check_env.py` first.
 | Mixed skater + goalie on NHL leaders | Pick skaters **or** goalies only; same coercion rules |
 | Cleared position filter refills everything | Fixed: removing all tags leaves filter empty (narrow with **×** on chips; MLB/NHL/NFL/NBA) |
 | NHL game logs slow / HTTP 429 | Use `--workers 2 --delay 1.0`; cache under `data/cache/gamelogs/nhl/` lets you resume |
-| FantasyPros `429` / empty MLB rankings | Wait for cooldown; use `--delay 2`; cached `/players` under `data/cache/fantasypros/` |
+| FantasyPros `429` / empty MLB rankings | Daily cap or cooldown — wait and resume; cached consensus under `data/cache/fantasypros/` |
 | `fp_season_mismatch` on old NBA/MLB seasons | FP often returns current-era players for old URLs — use recent seasons only |
 | `FANTASYPROS_API_KEY` not set | Copy `.env.example` → `.env` or `$env:FANTASYPROS_API_KEY`; run `fantasypros_probe.py` |
 | `ImportError` from `peer_z` on MLB/NBA/NHL leaders | Use `peer_z_sport` module (fixed in app); upgrade and restart Streamlit |

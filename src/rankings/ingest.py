@@ -33,7 +33,7 @@ def _insert_rankings(
     subset = subset[columns]
     pk_cols = {
         "ecr_draft": ["sport", "player_id", "season", "position"],
-        "ecr_weekly": ["player_id", "season", "week", "position"],
+        "ecr_weekly": ["sport", "player_id", "season", "week", "position"],
     }
     dedupe = pk_cols.get(table, columns[:3])
     subset = subset.drop_duplicates(subset=dedupe, keep="first")
@@ -92,10 +92,12 @@ def ingest_rankings_from_nflverse(
     weekly_mapped, weekly_unmapped = attach_player_ids(weekly, conn, fp_map)
     draft_mapped = draft_mapped.copy()
     draft_mapped["sport"] = "nfl"
+    weekly_mapped = weekly_mapped.copy()
+    weekly_mapped["sport"] = "nfl"
 
     if replace:
         conn.execute("DELETE FROM ecr_draft WHERE sport = 'nfl' OR sport IS NULL")
-        conn.execute("DELETE FROM ecr_weekly")
+        conn.execute("DELETE FROM ecr_weekly WHERE sport = 'nfl' OR sport IS NULL")
 
     draft_n = _insert_rankings(conn, "ecr_draft", draft_mapped, _DRAFT_COLS)
     weekly_n = _insert_rankings(conn, "ecr_weekly", weekly_mapped, _WEEKLY_COLS)

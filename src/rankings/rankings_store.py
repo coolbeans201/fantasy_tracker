@@ -20,6 +20,20 @@ DRAFT_COLS = [
     "scrape_date",
 ]
 
+WEEKLY_COLS = [
+    "sport",
+    "player_id",
+    "season",
+    "week",
+    "position",
+    "ecr_rank",
+    "ecr_sd",
+    "player_name",
+    "team",
+    "fantasypros_id",
+    "scrape_date",
+]
+
 PROJECTION_COLS = [
     "sport",
     "player_id",
@@ -52,6 +66,28 @@ def insert_ecr_draft(
     cols_sql = ", ".join(DRAFT_COLS)
     conn.execute(f"INSERT INTO ecr_draft ({cols_sql}) SELECT {cols_sql} FROM _ecr_draft_tmp")
     conn.unregister("_ecr_draft_tmp")
+    return len(subset)
+
+
+def insert_ecr_weekly(
+    conn: duckdb.DuckDBPyConnection,
+    frame: pd.DataFrame,
+) -> int:
+    if frame.empty:
+        return 0
+    subset = frame.copy()
+    for col in WEEKLY_COLS:
+        if col not in subset.columns:
+            subset[col] = pd.NA
+    subset = subset[WEEKLY_COLS]
+    subset = subset.drop_duplicates(
+        subset=["sport", "player_id", "season", "week", "position"],
+        keep="first",
+    )
+    conn.register("_ecr_weekly_tmp", subset)
+    cols_sql = ", ".join(WEEKLY_COLS)
+    conn.execute(f"INSERT INTO ecr_weekly ({cols_sql}) SELECT {cols_sql} FROM _ecr_weekly_tmp")
+    conn.unregister("_ecr_weekly_tmp")
     return len(subset)
 
 

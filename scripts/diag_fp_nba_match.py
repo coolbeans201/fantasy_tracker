@@ -49,7 +49,7 @@ def main() -> None:
     try:
         payload = get_json(
             consensus_rankings_path("nba", season),
-            params={"position": "ALL", "type": "draft"},
+            params={"position": "ALL", "week": 0},
         )
         lines.append(
             f"fp_api_season={payload.get('season')!r} fp_api_year={payload.get('year')!r}"

@@ -51,7 +51,9 @@ def _position_help(sport_id: str) -> str:
         return (
             "Defaults to all hitter positions (C, 1B, 2B, …). Do not mix hitters and "
             "pitchers. **H** / **P** are shortcuts for the full hitter or pitcher groups. "
-            "Remove tags to narrow — empty clears the filter."
+            "**DH** here means the stored *primary* position is DH (BRef `Pos` or MLB API) — "
+            "not “played DH sometimes.” Most MLB DHs are stored as 1B/OF/LF; use **H** or "
+            "several field tags instead of DH-only. Remove tags to narrow — empty clears the filter."
         )
     if sport_id == "nhl":
         return (
@@ -131,6 +133,13 @@ def render_sport_leaders_page(sport_id: str) -> None:
     if not positions:
         st.info("Select at least one position to view season leaders.")
         st.stop()
+
+    if sport_id == "mlb" and positions == ["DH"]:
+        st.caption(
+            "Showing only rows stored as primary position **DH** (usually a small set). "
+            "Players who mostly DH but are listed as 1B/OF on Baseball Reference are under "
+            "those tags or under **H** (all hitter positions)."
+        )
 
     if is_window:
         st.caption(

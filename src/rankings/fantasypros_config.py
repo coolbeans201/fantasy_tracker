@@ -6,6 +6,11 @@ import os
 from pathlib import Path
 
 ENV_API_KEY = "FANTASYPROS_API_KEY"
+ENV_MIN_INTERVAL = "FANTASYPROS_MIN_INTERVAL_SEC"
+ENV_429_BASE_WAIT = "FANTASYPROS_429_BASE_WAIT_SEC"
+
+# Public API tier (contact api@fantasypros.com to confirm for your key).
+FP_PUBLIC_API_DAILY_CALL_LIMIT = 100
 _DOTENV_LOADED = False
 
 
@@ -53,3 +58,27 @@ def get_fantasypros_api_key() -> str:
             f"(see .env.example). Do not commit keys to the repository."
         )
     return key
+
+
+def fp_min_interval_sec() -> float:
+    """Minimum seconds between FantasyPros HTTP requests (global throttle)."""
+    _load_dotenv_if_present()
+    raw = os.environ.get(ENV_MIN_INTERVAL, "").strip()
+    if raw:
+        try:
+            return max(0.0, float(raw))
+        except ValueError:
+            pass
+    return 5.0
+
+
+def fp_429_base_wait_sec() -> float:
+    """Base cooldown after HTTP 429 when Retry-After header is absent."""
+    _load_dotenv_if_present()
+    raw = os.environ.get(ENV_429_BASE_WAIT, "").strip()
+    if raw:
+        try:
+            return max(10.0, float(raw))
+        except ValueError:
+            pass
+    return 90.0

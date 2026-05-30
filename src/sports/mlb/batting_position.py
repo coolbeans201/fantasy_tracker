@@ -16,8 +16,12 @@ def resolve_batting_position(
     """
     Position for a hitter season row.
 
-    Priority: Baseball Reference ``Pos`` on the batting line, then MLB Stats API
-    ``primaryPosition``, then ``DH`` (legacy coarse ``H`` bucket).
+    Priority: Baseball Reference ``Pos`` on the batting line (first token if
+    multi-position, e.g. ``1B-DH`` → ``1B``), then MLB Stats API
+    ``primaryPosition``, then ``DH`` only when both are missing.
+
+    Few stored ``DH`` rows is normal: most hitters have a field position in BRef;
+    ``DH`` is not “everyone who DH’d in games.”
     """
     pos = normalize_mlb_field_position(bref_pos)
     if pos:

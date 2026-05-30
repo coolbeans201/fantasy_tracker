@@ -1,7 +1,9 @@
 from src.rankings.fantasypros_parse import (
     consensus_rankings_to_draft_ecr,
+    consensus_rankings_to_weekly_ecr,
     fp_player_display_name,
     players_list_to_draft_ecr,
+    rankings_to_weekly_ecr,
 )
 
 
@@ -22,6 +24,25 @@ def test_consensus_rankings_nba_pg_bucket():
     assert len(df) == 1
     assert df.iloc[0]["position"] == "PG"
     assert int(df.iloc[0]["ecr_rank"]) == 12
+
+
+def test_consensus_rankings_weekly_includes_week():
+    payload = {
+        "week": 3,
+        "players": [
+            {
+                "player_id": 99,
+                "player_name": "Test Player",
+                "player_positions": "PG",
+                "rank_ave": "5",
+            }
+        ],
+    }
+    df = consensus_rankings_to_weekly_ecr(
+        payload, sport_id="nba", season=2025, week=3
+    )
+    assert len(df) == 1
+    assert int(df.iloc[0]["week"]) == 3
 
 
 def test_consensus_rankings_nba():
@@ -61,6 +82,28 @@ def test_fp_player_display_name_nested_player():
         )
         == "Kevin Durant"
     )
+
+
+def test_rankings_endpoint_nested_ecr_all():
+    payload = {
+        "week": 2,
+        "players": [
+            {
+                "id": 15901,
+                "player_name": "Al Horford",
+                "positions": ["PF", "C"],
+                "rank": {
+                    "ECR": {"ALL": 42},
+                    "ECR_STD": {"ALL": 1.5},
+                },
+            }
+        ],
+    }
+    df = rankings_to_weekly_ecr(payload, sport_id="nba", season=2025, week=2)
+    assert len(df) == 1
+    assert df.iloc[0]["ecr_rank"] == 42
+    assert int(df.iloc[0]["week"]) == 2
+    assert df.iloc[0]["fantasypros_id"] == "15901"
 
 
 def test_players_list_mlb_rank_ecr():

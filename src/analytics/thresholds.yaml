@@ -55,3 +55,10 @@ volume_gates_by_sport:
       games: 41             # ~50% of 82-game season
     G:
       games: 20
+
+# Regular-season weeks used to prorate volume gates for weekly surprise / boom-bust.
+weeks_per_regular_season_by_sport:
+  nfl: 17
+  nba: 26
+  mlb: 27
+  nhl: 26
