@@ -10,6 +10,8 @@ import streamlit as st
 
 from app.charts import dual_entity_season_chart
 from app.components import get_db, render_sidebar
+from app.consistency_ui import render_game_consistency_panel
+from app.sport_ingest_hints import no_gamelogs_message
 from app.sport_context import init_sport_page
 from app.sport_profile_entry import player_id_from_profile_link
 from app.sport_season_scope import compare_season_scope_caption, sync_compare_sidebar_seasons
@@ -27,8 +29,15 @@ from src.sports.compare_cohort import (
     prepare_compare_season_rows,
 )
 from src.sports.display_stats import display_stats_for_leader_selection
+from src.analytics.game_consistency import (
+    consistency_from_games,
+    format_game_boom_bust_caption,
+    player_game_fp_percentiles,
+)
+from src.sports.game_logs import filter_game_log_for_profile, load_player_game_log
 from src.sports.player_career import compare_player_seasons
 from src.sports.player_seasons import compare_shared_seasons, compare_union_seasons
+from src.sports.registry import get_sport
 from src.stats_columns import rename_stats_for_display
 from src.ui_text import page_title_suffix, section_h3, title_case_ui
 
@@ -383,6 +392,59 @@ def render_sport_compare_page(
                             f"finish {surprise['finish_rank']}, "
                             f"rank Δ {surprise['rank_delta']:+d}"
                         )
+            elif not season_has_rankings(conn, pick_season, sport=sport_id):
+                from app.sport_ingest_hints import no_rankings_message
+                from src.rankings.fantasypros_limits import sport_draft_ecr_supported
+
+                msg = no_rankings_message(sport_id, pick_season)
+                if sport_draft_ecr_supported(sport_id, pick_season):
+                    st.info(msg)
+                else:
+                    st.caption(msg)
+
+        sport_meta = get_sport(sport_id)
+        st.markdown(section_h3(f"Per-{sport_meta.game_unit} consistency"))
+        boom_caption: str | None = None
+        for label, eid, row in (
+            (name_a, player_a, ra),
+            (name_b, player_b, rb),
+        ):
+            games = load_player_game_log(conn, sport_id, eid, pick_season)
+            if games is None or games.empty:
+                st.info(
+                    no_gamelogs_message(
+                        sport_id, pick_season, game_unit=sport_meta.game_unit
+                    )
+                )
+                continue
+            profile_pos = row["position"].iloc[0]
+            log_type = None
+            if sport_id == "mlb":
+                from src.sports.game_logs import mlb_default_game_log_type
+
+                log_type = mlb_default_game_log_type(
+                    row, games, primary_position=profile_pos
+                )
+            games = filter_game_log_for_profile(
+                games, sport_id, profile_pos, log_type=log_type
+            )
+            if games.empty:
+                st.info(f"{label}: no game log rows for this role in {pick_season}.")
+                continue
+            p25, p75 = player_game_fp_percentiles(games)
+            metrics = consistency_from_games(games, p25=p25, p75=p75)
+            render_game_consistency_panel(
+                metrics,
+                season=pick_season,
+                game_unit=sport_meta.game_unit,
+                position_label=str(profile_pos),
+                heading=f"{label} — per-{sport_meta.game_unit} consistency ({pick_season})",
+            )
+            boom_caption = format_game_boom_bust_caption(
+                p25, p75, game_unit=sport_meta.game_unit
+            )
+        if boom_caption:
+            st.caption(boom_caption)
 
     st.markdown(section_h3("Fantasy points by season"))
     merged = df_a.merge(df_b, on="season", suffixes=("_a", "_b"), how="outer").sort_values(

@@ -9,6 +9,7 @@ from typing import Any
 
 import pandas as pd
 
+from src.db.sport_schema import NBA_PLAYER_GAME_COLUMNS, ensure_nba_player_game_stats_schema
 from src.sports.game_logs import order_game_log_by_date
 from src.sports.nba.scoring import compute_fp
 from src.sports.season_type import filter_nba_gamelog_frame
@@ -17,6 +18,19 @@ NBA_GAMELOG_RETRIES = 6
 NBA_GAMELOG_BASE_DELAY_SEC = 1.5
 NBA_GAMELOG_TIMEOUT_SEC = 90
 NBA_GAMELOG_CHUNK_SLEEP_SEC = 0.8
+
+
+def _team_abbreviation(raw: pd.DataFrame) -> pd.Series:
+    """Prefer TEAM_ABBREVIATION; legacy bulk rows may only expose TEAM_ID."""
+    if "TEAM_ABBREVIATION" in raw.columns:
+        return (
+            raw["TEAM_ABBREVIATION"]
+            .astype(str)
+            .str.strip()
+            .str.upper()
+            .replace({"NAN": "UNK", "NONE": "UNK", "<NA>": "UNK"})
+        )
+    return pd.Series(["UNK"] * len(raw), index=raw.index)
 
 
 def _parse_opponent(matchup: str | None) -> str | None:
@@ -61,7 +75,7 @@ def _raw_gamelog_to_frame(raw: pd.DataFrame, end_year: int) -> pd.DataFrame:
     else:
         out["game_id"] = raw.get("GAME_ID", pd.Series([None] * len(raw))).astype(str)
     out["game_date"] = pd.to_datetime(raw.get("GAME_DATE"), errors="coerce").dt.date
-    out["team"] = raw.get("TEAM_ABBREVIATION", pd.Series(["UNK"] * len(raw))).astype(str)
+    out["team"] = _team_abbreviation(raw)
     out["opponent"] = raw.get("MATCHUP", pd.Series([None] * len(raw))).map(_parse_opponent)
     for src, dst in (
         ("PTS", "points"),
@@ -203,7 +217,7 @@ def fetch_player_gamelog(
     else:
         out["game_id"] = raw.get("GAME_ID", pd.Series([None] * len(raw))).astype(str)
     out["game_date"] = pd.to_datetime(raw["GAME_DATE"], errors="coerce").dt.date
-    out["team"] = raw.get("TEAM_ABBREVIATION", pd.Series(["UNK"] * len(raw))).astype(str)
+    out["team"] = _team_abbreviation(raw)
     out["opponent"] = raw.get("MATCHUP", pd.Series([None] * len(raw))).map(_parse_opponent)
     for src, dst in (
         ("PTS", "points"),
@@ -232,6 +246,8 @@ def ingest_season_gamelogs(
     per_player_only: bool = False,
 ) -> dict[str, int]:
     """Ingest game logs for all players with season stats (optional limit for tests)."""
+    ensure_nba_player_game_stats_schema(conn)
+
     q = """
         SELECT DISTINCT player_id, player_name
         FROM nba_player_season_stats
@@ -316,8 +332,15 @@ def ingest_season_gamelogs(
             "players_skipped": int(len(requested_set)),
         }
 
+    for col in NBA_PLAYER_GAME_COLUMNS:
+        if col not in frame.columns:
+            frame[col] = None
+    frame = frame[list(NBA_PLAYER_GAME_COLUMNS)]
     conn.register("_nba_games", frame)
-    conn.execute("INSERT INTO nba_player_game_stats SELECT * FROM _nba_games")
+    cols = ", ".join(NBA_PLAYER_GAME_COLUMNS)
+    conn.execute(
+        f"INSERT INTO nba_player_game_stats ({cols}) SELECT {cols} FROM _nba_games"
+    )
     conn.unregister("_nba_games")
     loaded_ids = set(frame["player_id"].astype(str).unique().tolist())
     loaded = len(loaded_ids & requested_set)

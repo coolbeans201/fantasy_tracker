@@ -30,6 +30,7 @@ from src.rankings.fantasypros_parse import (
     projections_to_frame,
     rankings_to_weekly_ecr,
 )
+from src.rankings.fantasypros_limits import FP_SPORT_DRAFT_ECR_MIN_SEASON, sport_draft_ecr_supported
 from src.rankings.rankings_store import insert_ecr_draft, insert_ecr_weekly, insert_fp_projections
 from src.rankings.mlb_ecr_positions import sync_mlb_pitcher_ecr_positions
 from src.rankings.sport_map_players import (
@@ -676,6 +677,20 @@ def ingest_sport_draft_ecr(
     """Fetch draft ECR from FantasyPros, map to player_id, load ``ecr_draft``."""
     sid = sport_id.strip().lower()
     year = int(season)
+
+    if not sport_draft_ecr_supported(sid, year):
+        return {
+            "sport": sid,
+            "season": year,
+            "status": "unsupported_season",
+            "message": (
+                f"FantasyPros draft ECR is not supported for {sid.upper()} before "
+                f"{FP_SPORT_DRAFT_ECR_MIN_SEASON}. The API may accept older season "
+                "parameters but returns current-era rankings, not historical boards."
+            ),
+            "draft_rows": 0,
+            "draft_unmapped": 0,
+        }
 
     print_fp_api_budget_warning(
         sid,

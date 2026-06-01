@@ -46,6 +46,8 @@ def search_players_table(
     if not tokens:
         return pd.DataFrame()
 
+    # ILIKE is accent-sensitive (Jokic does not match Jokić), so fall back to a
+    # recent-player prefetch and accent-insensitive token matching in Python.
     pattern = f"%{tokens[0]}%"
     prefetch = min(max(limit * 15, 300), 2500)
     df = _fetch(
@@ -58,14 +60,17 @@ def search_players_table(
         """,
         [pattern],
     )
-    if df.empty and len(tokens) > 1:
+    if df.empty:
         df = _fetch(
             conn,
             f"""
             SELECT player_id, player_name, position, season AS last_season
             FROM {table}
             QUALIFY {qualify}
+            ORDER BY {empty_order}
+            LIMIT ?
             """,
+            [prefetch],
         )
 
     if df.empty:
@@ -73,6 +78,20 @@ def search_players_table(
 
     mask = df["player_name"].map(lambda name: player_name_matches_query(name, q))
     df = df[mask]
+    if df.empty and len(tokens) > 1:
+        df = _fetch(
+            conn,
+            f"""
+            SELECT player_id, player_name, position, season AS last_season
+            FROM {table}
+            QUALIFY {qualify}
+            ORDER BY {empty_order}
+            LIMIT ?
+            """,
+            [prefetch],
+        )
+        mask = df["player_name"].map(lambda name: player_name_matches_query(name, q))
+        df = df[mask]
     if "last_season" in df.columns:
         df = df.sort_values(["last_season", "player_name"], ascending=[False, True])
     return df.head(limit)

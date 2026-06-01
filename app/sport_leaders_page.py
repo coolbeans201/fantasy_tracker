@@ -197,15 +197,20 @@ def render_sport_leaders_page(sport_id: str) -> None:
         )
 
     if df.empty:
+        vol_label = (
+            "Min plate appearances"
+            if sport_id == "mlb"
+            else "Min games played"
+        )
         st.warning(
-            "No results for these filters. Try lowering **Min games played** in the sidebar "
+            f"No results for these filters. Try lowering **{vol_label}** in the sidebar "
             "or adjusting the position filter."
         )
         st.stop()
 
     df = add_fp_per_game(df)
     surprise_all = None
-    if not is_window and controls.get("era_z"):
+    if not is_window:
         df = enrich_leaders_dataframe_sport(
             conn,
             sport_id,
@@ -213,21 +218,19 @@ def render_sport_leaders_page(sport_id: str) -> None:
             int(season),
             positions=positions,
             min_games=controls["min_games"],
-            era_z=True,
-        )
-    elif not is_window:
-        df = enrich_leaders_dataframe_sport(
-            conn,
-            sport_id,
-            df,
-            int(season),
-            positions=positions,
-            min_games=controls["min_games"],
-            era_z=False,
+            era_z=bool(controls.get("era_z")),
         )
     elif controls.get("era_z"):
         st.caption("Peer Z (era) is not shown for multi-season window leaders.")
 
+    if not is_window and not season_has_rankings(conn, int(season), sport=sport_id):
+        from app.sport_ingest_hints import no_rankings_message
+        from src.rankings.fantasypros_limits import sport_draft_ecr_supported
+
+        if sport_draft_ecr_supported(sport_id, int(season)):
+            st.info(no_rankings_message(sport_id, int(season)))
+        else:
+            st.caption(no_rankings_message(sport_id, int(season)))
     if not is_window and season_has_rankings(conn, int(season), sport=sport_id):
         surprise_all = compute_sport_season_surprise_frame(
             conn,
@@ -295,6 +298,8 @@ def render_sport_leaders_page(sport_id: str) -> None:
     ]
     if not is_window and "peer_z_season" in df.columns:
         _sort_options.append((title_case_ui("Peer Z (season)"), "peer_z_season"))
+    if not is_window and controls.get("era_z") and "peer_z_era" in df.columns:
+        _sort_options.append((title_case_ui("Peer Z (era)"), "peer_z_era"))
     if (
         not is_window
         and surprise_all is not None

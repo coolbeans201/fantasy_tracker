@@ -18,14 +18,29 @@ from src.db.queries import (  # noqa: E402
 
 
 def main() -> None:
+    import argparse
+
+    p = argparse.ArgumentParser(description="Draft ECR coverage vs ingested stats")
+    p.add_argument("--sport", choices=["nfl", "mlb", "nba", "nhl"], default="nfl")
+    p.add_argument("--season", type=int, default=None)
+    args = p.parse_args()
+
     if not db_exists():
         print("No database. Run ingest_season.py first.")
         return
 
     conn = get_connection()
     try:
-        stats_seasons = list_ingested_seasons(conn)
-        rank_seasons = list_rankings_seasons(conn)
+        sid = args.sport.strip().lower()
+        if sid == "nfl":
+            stats_seasons = list_ingested_seasons(conn)
+            rank_seasons = list_rankings_seasons(conn)
+        else:
+            from src.sports.data_coverage import sport_data_coverage
+
+            cov = sport_data_coverage(conn, sid)
+            stats_seasons = list(cov["stats_seasons"])
+            rank_seasons = list(cov["draft_ecr_seasons"])
         manifest = rankings_manifest_summary(conn)
     finally:
         conn.close()
@@ -46,10 +61,34 @@ def main() -> None:
         print("\nNo draft ECR seasons in DB. Run: scripts/ingest_rankings.py")
         return
 
-    print(f"\nDraft ECR seasons ({len(rank_seasons)}):")
+    print(f"\nDraft ECR seasons ({len(rank_seasons)}) [{sid.upper()}]:")
     print(" ", ", ".join(str(s) for s in rank_seasons))
 
-    missing = sorted(set(stats_seasons) - set(rank_seasons), reverse=True)
+    if args.season is not None:
+        from src.db.queries import season_has_rankings
+
+        ok = season_has_rankings(conn, args.season, sport=sid if sid != "nfl" else None)
+        print(f"\nSeason {args.season} ready for rank Δ UI: {ok}")
+
+    missing_candidates = set(stats_seasons) - set(rank_seasons)
+    if sid != "nfl":
+        from src.rankings.fantasypros_limits import (
+            FP_SPORT_DRAFT_ECR_MIN_SEASON,
+            sport_draft_ecr_supported,
+        )
+
+        unsupported = [s for s in stats_seasons if not sport_draft_ecr_supported(sid, s)]
+        if unsupported:
+            print(
+                f"\nPre-{FP_SPORT_DRAFT_ECR_MIN_SEASON} stats seasons (FP draft ECR N/A): "
+                f"{len(unsupported)}"
+            )
+            print(" ", ", ".join(str(s) for s in unsupported[:20]))
+        missing_candidates = {
+            s for s in missing_candidates if sport_draft_ecr_supported(sid, s)
+        }
+
+    missing = sorted(missing_candidates, reverse=True)
     if missing:
         print(f"\nStats seasons WITHOUT draft ECR ({len(missing)}):")
         print(" ", ", ".join(str(s) for s in missing))

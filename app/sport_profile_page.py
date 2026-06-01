@@ -86,6 +86,8 @@ def _career_show_with_peer_z(
     sport_id: str,
     career: pd.DataFrame,
     min_games: int,
+    *,
+    era_z: bool = False,
 ) -> pd.DataFrame:
     career_cols = [
         "season",
@@ -96,6 +98,7 @@ def _career_show_with_peer_z(
         "fp_per_game",
         "career_z",
         "peer_z_season",
+        "peer_z_era",
     ]
     career_show = career[[c for c in career_cols if c in career.columns]].copy()
     if "peer_z_season" not in career_show.columns:
@@ -112,6 +115,16 @@ def _career_show_with_peer_z(
                 row.get("position"),
             )
             career_show.loc[idx, "peer_z_season"] = pz
+    if era_z:
+        from src.analytics.peer_z_sport import add_peer_z_era_column_sport
+        from src.sports.peer_queries import season_stats_for_peer_analysis
+
+        all_seasons = season_stats_for_peer_analysis(
+            conn, sport_id, season=None, min_games=min_games
+        )
+        career_show = add_peer_z_era_column_sport(
+            career_show, sport_id, all_seasons, min_games=min_games
+        )
     return career_show
 
 
@@ -172,9 +185,14 @@ def _render_career_window_section(
             f"(COVID-shortened season).{highlight_note}"
         )
     else:
+        era_note = (
+            " **Peer Z (era)** compares each season to all ingested years at that position."
+            if controls.get("era_z")
+            else " Enable **Peer Z (all-time era)** in the sidebar for an era column."
+        )
         st.caption(
             "**Career Z** and peer gates use min games and position volume rules "
-            f"for this sport.{highlight_note}"
+            f"for this sport.{era_note}{highlight_note}"
         )
 
     season_series = career["season"].astype(int)
@@ -339,7 +357,9 @@ def _render_season_detail_section(
     if games is None:
         return
     if games.empty:
-        st.info(f"No {game_unit} log rows ingested for this season.")
+        from app.sport_ingest_hints import no_gamelogs_message
+
+        st.info(no_gamelogs_message(sport_id, detail_season, game_unit=game_unit))
         return
 
     profile_pos = primary.get("position")
@@ -590,7 +610,13 @@ def render_sport_profile_page(sport_id: str, *, label: str) -> None:
     show_peak_highlight = len(chart_career) > 1
     peak_yr = peak_season_year(chart_career) if show_peak_highlight else None
     prime_years = prime_season_years(career)
-    career_show = _career_show_with_peer_z(conn, sport_id, career, min_games)
+    career_show = _career_show_with_peer_z(
+        conn,
+        sport_id,
+        career,
+        min_games,
+        era_z=bool(controls.get("era_z")),
+    )
 
     _render_career_window_section(
         sport_id=sport_id,

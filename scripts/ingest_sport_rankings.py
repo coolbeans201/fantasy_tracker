@@ -276,7 +276,7 @@ def main() -> None:
             )
         elif "players-cache" in str(source):
             print("  Used local FantasyPros /players cache (no /players API call).")
-        if summary.get("status") == "fp_season_mismatch":
+        if summary.get("status") in ("fp_season_mismatch", "unsupported_season"):
             print(f"  {summary.get('message')}")
             continue
         stats_n = summary.get("stats_lookup_players")

@@ -5,6 +5,7 @@ from __future__ import annotations
 import duckdb
 import streamlit as st
 
+from app.sport_data_coverage_ui import render_sport_data_coverage
 from src.db.connection import db_exists, get_ingest_summary, list_sport_seasons
 from src.sports.registry import SportMeta, get_sport
 from src.ui_text import title_case_ui
@@ -35,6 +36,10 @@ def render_sport_hub(conn, meta: SportMeta) -> None:
         st.page_link(meta.compare_page, label=title_case_ui("Compare"), icon="⚖️")
 
     st.divider()
+    if meta.sport_id != "nfl" and conn is not None:
+        render_sport_data_coverage(conn, meta)
+        st.divider()
+
     st.subheader(title_case_ui("Database status"))
     if not db_exists():
         st.warning("No database found. Run ingest first.")
